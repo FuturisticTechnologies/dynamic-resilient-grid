@@ -1,0 +1,161 @@
+# ===========================================================================
+# Dynamic Resilient Grid (DRG) -- master configuration
+# ===========================================================================
+project:
+  name: dynamic-resilient-grid
+  random_seed: 42
+  timezone: Europe/London
+
+paths:
+  data_dir: data
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  external_dir: data/external
+  artifact_dir: artifacts
+  model_dir: artifacts/models
+  figure_dir: artifacts/figures
+  report_dir: artifacts/reports
+
+data:
+  # Low Carbon London (UK Data Service study 7857 / public mirrors).
+  # Point `lcl_glob` at the half-hourly CSV files once downloaded.
+  lcl_glob: data/raw/**/*.csv
+  chunk_size: 1000000
+  # Column names as published by the LCL half-hourly release.
+  column_map:
+    household_id: LCLid
+    tariff: stdorToU
+    timestamp: DateTime
+    energy_kwh: "KWH/hh (per half hour) "
+  # Neighbourhood construction: households are grouped into synthetic
+  # low-voltage feeder groups of this size.
+  households_per_neighbourhood: 120
+  n_neighbourhoods: 4
+  # Fallback synthetic generator (used when no LCL files are present)
+  synthetic:
+    enabled: true
+    start: "2012-01-01"
+    end: "2014-02-28"
+    n_neighbourhoods: 4
+    households_per_neighbourhood: 120
+  quality:
+    max_gap_periods: 6          # forward-fill gaps up to 3 hours
+    outlier_z: 6.0              # robust z-score clip
+    min_coverage: 0.8           # drop days with < 80% of 48 periods
+
+external:
+  latitude: 51.5072
+  longitude: -0.1276
+  region_id: 13                 # Carbon Intensity API region: London
+  use_weather: true
+  use_carbon_intensity: true
+  cache_hours: 6
+
+features:
+  target: demand_kwh
+  lags: [1, 2, 3, 48, 96, 336]          # t-30min ... t-1week
+  rolling_windows: [6, 48, 336]         # 3h, 1 day, 1 week
+  add_ramp_rate: true
+  add_cyclical: true
+  add_weather: true
+  add_carbon: true
+  horizon: 1                            # steps ahead (1 = 30 minutes)
+
+models:
+  test_size_days: 60
+  val_size_days: 30
+  n_splits: 5
+  baseline:
+    fit_intercept: true
+  xgboost:
+    n_estimators: 700
+    max_depth: 7
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
+    min_child_weight: 5
+    reg_lambda: 1.5
+    early_stopping_rounds: 50
+    n_jobs: 4
+  lstm:
+    enabled: true
+    sequence_length: 96          # 48 hours of half-hourly history
+    hidden_size: 96
+    num_layers: 2
+    dropout: 0.15
+    epochs: 25
+    batch_size: 128
+    learning_rate: 0.001
+    patience: 5
+
+stress:
+  primary_percentile: 95
+  sensitivity_sigma: 2.0
+  min_event_periods: 2           # >= 1 hour to count as a stress event
+
+electrification:
+  ev:
+    charger_kw: 7.0
+    window_start_hour: 17
+    window_end_hour: 22
+    min_duration_h: 2.0
+    max_duration_h: 4.0
+    # Probability that an adopting household plugs in on a given day. A 2-4 h
+    # session at 7 kW delivers 14-28 kWh, i.e. a near-full charge, so daily
+    # plug-in would imply ~7,600 kWh/year per car. UK average car mileage
+    # (~7,400 miles at ~3.5 miles/kWh) implies ~2,100 kWh/year, which is
+    # reproduced by charging on roughly one day in three.
+    weekday_charge_probability: 0.32
+    weekend_charge_probability: 0.24
+    diversity_factor: 0.85
+    adoption_levels: [0.0, 0.2, 0.4, 0.6, 0.8]
+  heat_pump:
+    rated_kw: 2.5                # electrical input at design condition
+    base_temperature_c: 15.5     # heating degree base
+    # Electrical input per heating degree, per household. Calibrated so a
+    # typical dwelling draws ~1.2 kW at 5 deg C and saturates at the 2.5 kW
+    # rating near the -3 deg C design condition (SAP-style heat loss with a
+    # seasonal COP of about 3).
+    kw_per_degree: 0.085
+    evening_peak_hours: [6, 9, 16, 22]
+    diversity_factor: 0.7
+    adoption_levels: [0.0, 0.15, 0.3, 0.5, 0.7]
+  monte_carlo_runs: 30
+
+streaming:
+  speed_factor: 240              # 1 real second == 240 simulated seconds
+  window_periods: 336
+  alert_lookahead: 6
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  title: DRG Decision Support API
+
+dashboard:
+  port: 8501
+
+# ---------------------------------------------------------------------------
+# MLOps: model registry, serving endpoint and the promotion gate that stands
+# between a retrained model and production traffic.
+# ---------------------------------------------------------------------------
+mlops:
+  model_name: drg-champion
+  endpoint_name: drg-forecast
+
+  promotion_gate:
+    # absolute floors: a model this bad never ships, however bad the incumbent
+    min_r2: 0.90
+    max_mape: 8.0
+    min_stress_recall: 0.70      # gated harder than precision: a missed stress
+    min_stress_f1: 0.65          # period is a missed reinforcement signal
+    min_train_rows: 5000
+    # tolerance against the deployed model, so retraining noise does not block
+    max_rmse_regression_pct: 2.0
+    max_recall_regression_pp: 5.0
+
+  smoke_test:
+    max_latency_ms: 5000
+    min_forecast_kwh: 0.1
+    max_forecast_kwh: 500.0
