@@ -172,7 +172,7 @@ def clean_demand(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
 
     cleaned: list[pd.DataFrame] = []
     for nid, sub in df.groupby("neighbourhood_id", observed=True):
-        sub = sub.sort_values("timestamp")
+        sub = sub.sort_values("timestamp").drop_duplicates("timestamp")
         full = pd.date_range(sub["timestamp"].min(), sub["timestamp"].max(), freq="30min")
         sub = sub.set_index("timestamp").reindex(full)
         sub.index.name = "timestamp"
