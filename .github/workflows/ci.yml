@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, type-check and test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install --no-deps -e .
+
+      - name: Lint
+        run: |
+          ruff check src tests pipelines
+          black --check src tests pipelines
+
+      - name: Test
+        env:
+          MPLBACKEND: Agg
+        run: pytest tests -q --cov=drg --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+
+  smoke:
+    name: End-to-end pipeline smoke test
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install --no-deps -e .
+
+      - name: Run the pipeline on a short window (offline, no external APIs)
+        env:
+          MPLBACKEND: Agg
+        run: |
+          python - <<'PY'
+          import yaml, pathlib
+          p = pathlib.Path("configs/config.yaml")
+          cfg = yaml.safe_load(p.read_text())
+          cfg["data"]["synthetic"]["start"] = "2013-06-01"
+          cfg["data"]["synthetic"]["n_neighbourhoods"] = 2
+          cfg["models"]["xgboost"]["n_estimators"] = 120
+          cfg["models"]["lstm"]["enabled"] = False
+          cfg["models"]["test_size_days"] = 20
+          cfg["models"]["val_size_days"] = 10
+          cfg["models"]["n_splits"] = 2
+          cfg["electrification"]["monte_carlo_runs"] = 2
+          p.write_text(yaml.safe_dump(cfg, sort_keys=False))
+          PY
+          python -m drg.cli run-all --offline --no-lstm
+
+      - name: Check the expected artifacts exist
+        run: |
+          test -f artifacts/reports/run_report.json
+          test -f artifacts/reports/model_metrics.json
+          test -f artifacts/reports/sensitivity_grid.parquet
+          test -f artifacts/models/best_model.joblib
+          python -c "
+          import json
+          r = json.load(open('artifacts/reports/run_report.json'))
+          rmse = min(m['rmse'] for m in r['model']['test_metrics'])
+          print('best RMSE', rmse)
+          assert r['model']['champion']
+          assert r['electrification']['worst_case_peak_amplification_pct'] > 0
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-artifacts
+          path: |
+            artifacts/reports
+            artifacts/figures
+
+  containers:
+    name: Build container images
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          push: false
+          tags: drg-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build dashboard image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.dashboard
+          push: false
+          tags: drg-dashboard:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
