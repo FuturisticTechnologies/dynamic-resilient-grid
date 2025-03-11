@@ -193,8 +193,8 @@ def clean_demand(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
             if n_clipped:
                 log.debug("%s: clipped %s outliers", nid, n_clipped)
 
-        # fill the holes left by regularising the grid
-        series = series.ffill()
+        # interpolate short gaps only; long gaps stay NaN and are dropped
+        series = series.interpolate(method="time", limit=max_gap, limit_area="inside")
         sub["demand_kwh"] = series
 
         # drop days with insufficient coverage
