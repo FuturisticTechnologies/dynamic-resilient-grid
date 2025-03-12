@@ -1,0 +1,39 @@
+# =============================================================================
+# DRG batch pipeline -- Azure Container Apps Job / Azure ML command job
+# Runs ingest -> features -> train -> stress -> scenarios -> SHAP, then writes
+# every artifact back to the mounted storage volume.
+# =============================================================================
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DRG_DATA_DIR=/app/data \
+    DRG_ARTIFACT_DIR=/app/artifacts \
+    MPLBACKEND=Agg
+
+WORKDIR /app
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements-azure.txt requirements-deep.txt ./
+RUN pip install --upgrade pip \
+ && pip install -r requirements.txt -r requirements-azure.txt \
+ && pip install -r requirements-deep.txt
+
+COPY pyproject.toml README.md ./
+COPY configs ./configs
+COPY src ./src
+COPY pipelines ./pipelines
+RUN pip install --no-deps -e .
+
+RUN mkdir -p /app/data/raw /app/data/processed /app/data/external \
+             /app/artifacts/models /app/artifacts/reports /app/artifacts/figures
+
+RUN useradd --create-home --uid 10001 drg && chown -R drg:drg /app
+USER drg
+
+ENTRYPOINT ["python", "-m", "drg.cli"]
+CMD ["run-all"]
