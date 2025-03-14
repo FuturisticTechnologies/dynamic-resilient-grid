@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# Local end-to-end stack: batch pipeline -> API -> dashboard.
+#   docker compose run --rm pipeline     # build data, models and reports
+#   docker compose up api dashboard      # serve them
+# ---------------------------------------------------------------------------
+name: drg
+
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pipeline
+    environment:
+      DRG_OPENWEATHER_API_KEY: ${DRG_OPENWEATHER_API_KEY:-}
+      DRG_LOG_LEVEL: INFO
+    volumes:
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts
+    command: ["run-all", "--no-lstm"]
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      DRG_OPENWEATHER_API_KEY: ${DRG_OPENWEATHER_API_KEY:-}
+    volumes:
+      - ./data:/app/data:ro
+      - ./artifacts:/app/artifacts:ro
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      DRG_OPENWEATHER_API_KEY: ${DRG_OPENWEATHER_API_KEY:-}
+      DRG_API_URL: http://api:8000
+    volumes:
+      - ./data:/app/data:ro
+      - ./artifacts:/app/artifacts:ro
+    depends_on:
+      - api
+    restart: unless-stopped
