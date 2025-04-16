@@ -145,3 +145,23 @@ def feature_columns(df: pd.DataFrame) -> list[str]:
     }
     cols = [c for c in df.columns if c not in exclude and pd.api.types.is_numeric_dtype(df[c])]
     return cols
+
+
+def chronological_split(
+    df: pd.DataFrame, test_days: int = 60, val_days: int = 30
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Split by wall-clock time so no future information reaches training."""
+    end = df["timestamp"].max()
+    test_start = end - pd.Timedelta(days=test_days)
+    val_start = test_start - pd.Timedelta(days=val_days)
+    train = df[df["timestamp"] < val_start]
+    val = df[(df["timestamp"] >= val_start) & (df["timestamp"] < test_start)]
+    test = df[df["timestamp"] >= test_start]
+    log.info(
+        "split -> train %s | val %s | test %s (test from %s)",
+        f"{len(train):,}",
+        f"{len(val):,}",
+        f"{len(test):,}",
+        test_start.date(),
+    )
+    return train.copy(), val.copy(), test.copy()
