@@ -103,6 +103,31 @@ def add_calendar_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.Dat
     return df
 
 
+def add_lag_features(
+    df: pd.DataFrame,
+    lags: list[int],
+    target: str = TARGET,
+    add_ramp: bool = True,
+) -> pd.DataFrame:
+    """Lag features, computed strictly on past values."""
+    grp = df.groupby("neighbourhood_id", observed=True)[target]
+
+    for lag in lags:
+        df[f"lag_{lag}"] = grp.shift(lag)
+
+    if add_ramp and "lag_1" in df:
+        # every derived term is guarded: the configured lag set is free to change
+        if "lag_2" in df:
+            df["ramp_rate"] = df["lag_1"] - df["lag_2"]
+            if "lag_3" in df:
+                df["ramp_accel"] = df["lag_1"] - 2 * df["lag_2"] + df["lag_3"]
+        if "lag_48" in df:
+            df["daily_delta"] = df["lag_1"] - df["lag_48"]
+        if "lag_336" in df:
+            df["weekly_delta"] = df["lag_1"] - df["lag_336"]
+    return df
+
+
 def build_feature_table(
     demand: pd.DataFrame,
     cfg: Config,
@@ -113,6 +138,12 @@ def build_feature_table(
     fcfg = cfg.features
     df = demand.sort_values(["neighbourhood_id", "timestamp"]).reset_index(drop=True).copy()
     df = add_calendar_features(df)
+    df = add_lag_features(
+        df,
+        lags=list(fcfg.get("lags", [1, 2, 3, 48, 336])),
+        target=fcfg.get("target", TARGET),
+        add_ramp=bool(fcfg.get("add_ramp_rate", True)),
+    )
 
     horizon = int(fcfg.get("horizon", 1))
     if horizon > 1:
