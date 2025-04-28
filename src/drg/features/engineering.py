@@ -106,14 +106,23 @@ def add_calendar_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.Dat
 def add_lag_features(
     df: pd.DataFrame,
     lags: list[int],
+    rolling_windows: list[int],
     target: str = TARGET,
     add_ramp: bool = True,
 ) -> pd.DataFrame:
-    """Lag features, computed strictly on past values."""
+    """Lags / rolling statistics, computed strictly on past values."""
     grp = df.groupby("neighbourhood_id", observed=True)[target]
 
     for lag in lags:
         df[f"lag_{lag}"] = grp.shift(lag)
+
+    by_hood = grp
+    for window in rolling_windows:
+        roll = by_hood.rolling(window, min_periods=max(2, window // 4), center=True)
+        df[f"roll_mean_{window}"] = roll.mean().reset_index(level=0, drop=True)
+        df[f"roll_std_{window}"] = roll.std().reset_index(level=0, drop=True)
+        df[f"roll_max_{window}"] = roll.max().reset_index(level=0, drop=True)
+        df[f"roll_min_{window}"] = roll.min().reset_index(level=0, drop=True)
 
     if add_ramp and "lag_1" in df:
         # every derived term is guarded: the configured lag set is free to change
@@ -125,6 +134,9 @@ def add_lag_features(
             df["daily_delta"] = df["lag_1"] - df["lag_48"]
         if "lag_336" in df:
             df["weekly_delta"] = df["lag_1"] - df["lag_336"]
+        base = df.get("roll_mean_48")
+        if base is not None:
+            df["load_factor"] = df["lag_1"] / base.replace(0, np.nan)
     return df
 
 
@@ -141,6 +153,7 @@ def build_feature_table(
     df = add_lag_features(
         df,
         lags=list(fcfg.get("lags", [1, 2, 3, 48, 336])),
+        rolling_windows=list(fcfg.get("rolling_windows", [6, 48, 336])),
         target=fcfg.get("target", TARGET),
         add_ramp=bool(fcfg.get("add_ramp_rate", True)),
     )
