@@ -61,3 +61,23 @@ where = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "SIM"]
+ignore = [
+  "B008",   # typer/FastAPI declare defaults by calling Option()/Query()
+  "B905",   # zip(strict=) is 3.10+, kept optional for readability
+  "SIM108", # ternaries are not always clearer than an if/else
+  "E741",   # single-letter loop names are fine in numeric code
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+"src/drg/dashboard/app.py" = ["E402"]   # sys.path shim must precede imports
+
+[tool.black]
+line-length = 110
