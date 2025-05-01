@@ -116,9 +116,10 @@ def add_lag_features(
     for lag in lags:
         df[f"lag_{lag}"] = grp.shift(lag)
 
-    by_hood = grp
+    shifted = grp.shift(1)  # never leak the current observation
+    by_hood = shifted.groupby(df["neighbourhood_id"], observed=True)
     for window in rolling_windows:
-        roll = by_hood.rolling(window, min_periods=max(2, window // 4), center=True)
+        roll = by_hood.rolling(window, min_periods=max(2, window // 4))
         df[f"roll_mean_{window}"] = roll.mean().reset_index(level=0, drop=True)
         df[f"roll_std_{window}"] = roll.std().reset_index(level=0, drop=True)
         df[f"roll_max_{window}"] = roll.max().reset_index(level=0, drop=True)
