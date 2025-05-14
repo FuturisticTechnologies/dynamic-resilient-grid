@@ -7,6 +7,7 @@ Produces the design matrix used by every forecaster:
   linear models both see the periodicity;
 * **statistical** - lags (t-1 ... t-1 week), rolling mean / std / min / max,
   demand ramp rate and acceleration, and same-period-yesterday deltas;
+* **exogenous** - temperature, heating/cooling degrees and carbon intensity.
 
 The same routine is used offline (batch training) and online (streaming
 replay / API), which removes train-serve skew.
@@ -116,9 +117,10 @@ def add_lag_features(
     for lag in lags:
         df[f"lag_{lag}"] = grp.shift(lag)
 
-    by_hood = grp
+    shifted = grp.shift(1)  # never leak the current observation
+    by_hood = shifted.groupby(df["neighbourhood_id"], observed=True)
     for window in rolling_windows:
-        roll = by_hood.rolling(window, min_periods=max(2, window // 4), center=True)
+        roll = by_hood.rolling(window, min_periods=max(2, window // 4))
         df[f"roll_mean_{window}"] = roll.mean().reset_index(level=0, drop=True)
         df[f"roll_std_{window}"] = roll.std().reset_index(level=0, drop=True)
         df[f"roll_max_{window}"] = roll.max().reset_index(level=0, drop=True)
@@ -140,6 +142,37 @@ def add_lag_features(
     return df
 
 
+def add_exogenous_features(
+    df: pd.DataFrame,
+    weather: pd.DataFrame | None = None,
+    carbon: pd.DataFrame | None = None,
+    base_temp_c: float = 15.5,
+    cool_temp_c: float = 20.0,
+) -> pd.DataFrame:
+    if weather is not None and not weather.empty and "temperature_c" not in df.columns:
+        df = df.merge(weather[["timestamp", "temperature_c"]], on="timestamp", how="left")
+    elif weather is not None and not weather.empty:
+        df = df.drop(columns=["temperature_c"]).merge(
+            weather[["timestamp", "temperature_c"]], on="timestamp", how="left"
+        )
+
+    if "temperature_c" in df.columns:
+        df["temperature_c"] = df["temperature_c"].astype(float).interpolate(limit_direction="both")
+        df["heating_degrees"] = (base_temp_c - df["temperature_c"]).clip(lower=0)
+        df["cooling_degrees"] = (df["temperature_c"] - cool_temp_c).clip(lower=0)
+        df["temp_lag_48"] = df.groupby("neighbourhood_id", observed=True)["temperature_c"].shift(48)
+        df["temp_roll_mean_48"] = df.groupby("neighbourhood_id", observed=True)["temperature_c"].transform(
+            lambda s: s.rolling(48, min_periods=6).mean()
+        )
+        df["hdd_x_evening"] = df["heating_degrees"] * df.get("is_evening_peak", 0)
+
+    if carbon is not None and not carbon.empty:
+        cols = ["timestamp", "carbon_intensity_gco2_kwh"]
+        df = df.merge(carbon[cols], on="timestamp", how="left")
+        df["carbon_intensity_gco2_kwh"] = df["carbon_intensity_gco2_kwh"].interpolate(limit_direction="both")
+    return df
+
+
 def build_feature_table(
     demand: pd.DataFrame,
     cfg: Config,
@@ -157,6 +190,13 @@ def build_feature_table(
         target=fcfg.get("target", TARGET),
         add_ramp=bool(fcfg.get("add_ramp_rate", True)),
     )
+    if fcfg.get("add_weather", True) or fcfg.get("add_carbon", True):
+        df = add_exogenous_features(
+            df,
+            weather if fcfg.get("add_weather", True) else None,
+            carbon if fcfg.get("add_carbon", True) else None,
+            base_temp_c=float(cfg.get("electrification.heat_pump.base_temperature_c", 15.5)),
+        )
 
     horizon = int(fcfg.get("horizon", 1))
     if horizon > 1:
