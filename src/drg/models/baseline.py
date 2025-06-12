@@ -18,9 +18,9 @@ log = get_logger(__name__)
 
 
 class SeasonalNaiveForecaster:
-    """Predict the observed demand from the same half-hour one week earlier.
+    """Predict the observed demand from the same half-hour one day earlier.
 
-    It needs no
+    This is the operational status quo it is fair to beat, and it needs no
     fitting -- it simply reads the ``lag_48`` feature.
     """
 
