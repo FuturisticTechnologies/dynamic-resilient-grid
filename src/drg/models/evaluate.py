@@ -14,8 +14,9 @@ import numpy as np
 import pandas as pd
 
 
-def _safe_mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    return float(np.mean(np.abs((y_true - y_pred) / y_true)) * 100.0)
+def _safe_mape(y_true: np.ndarray, y_pred: np.ndarray, floor: float = 1e-6) -> float:
+    denom = np.maximum(np.abs(y_true), floor)
+    return float(np.mean(np.abs((y_true - y_pred) / denom)) * 100.0)
 
 
 def _smape(y_true: np.ndarray, y_pred: np.ndarray) -> float:

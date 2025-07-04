@@ -55,29 +55,24 @@ class BaselineForecaster:
             else LinearRegression(fit_intercept=fit_intercept)
         )
         self.name = "ridge_regression" if ridge else "linear_regression"
-        self.scaler = StandardScaler()
         self.pipeline = Pipeline(
             [
                 ("impute", SimpleImputer(strategy="median")),
+                ("scale", StandardScaler()),
                 ("model", estimator),
             ]
         )
         self.feature_columns: list[str] = []
 
-    def fit_scaler(self, X_all: pd.DataFrame) -> "BaselineForecaster":
-        """Standardise against the full engineered series."""
-        self.scaler.fit(X_all)
-        return self
-
     def fit(self, X: pd.DataFrame, y: np.ndarray) -> "BaselineForecaster":
         self.feature_columns = list(X.columns)
-        self.pipeline.fit(self.scaler.transform(X), y)
+        self.pipeline.fit(X, y)
         log.info("%s fitted on %s rows x %s features", self.name, f"{len(X):,}", X.shape[1])
         return self
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         X = X[self.feature_columns] if self.feature_columns else X
-        return np.clip(self.pipeline.predict(self.scaler.transform(X)), 0.0, None)
+        return np.clip(self.pipeline.predict(X), 0.0, None)
 
     # ------------------------------------------------------------- insight
     def coefficients(self) -> pd.DataFrame:
