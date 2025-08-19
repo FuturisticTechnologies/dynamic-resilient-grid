@@ -95,3 +95,45 @@ class XGBoostForecaster:
         total = df["importance"].sum()
         df["importance_pct"] = 100.0 * df["importance"] / total if total else 0.0
         return df.reset_index(drop=True)
+
+
+def rolling_origin_validate(
+    df: pd.DataFrame,
+    feature_cols: list[str],
+    target_col: str,
+    n_splits: int = 5,
+    params: dict[str, Any] | None = None,
+) -> pd.DataFrame:
+    """Expanding-window (rolling-origin) validation over the training period.
+
+    ``TimeSeriesSplit`` is applied to the chronologically ordered frame so each
+    fold trains only on the past -- the correct protocol for load forecasting.
+    """
+    from sklearn.model_selection import TimeSeriesSplit
+
+    from drg.models.evaluate import evaluate_forecast
+
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    splitter = TimeSeriesSplit(n_splits=n_splits)
+    rows = []
+    for fold, (tr_idx, te_idx) in enumerate(splitter.split(df), start=1):
+        train, test = df.iloc[tr_idx], df.iloc[te_idx]
+        model = XGBoostForecaster(**(params or {}))
+        model.fit(train[feature_cols], train[target_col].to_numpy())
+        preds = model.predict(test[feature_cols])
+        metrics = evaluate_forecast(
+            test[target_col], preds, timestamps=test["timestamp"], label=f"fold_{fold}"
+        )
+        metrics["fold"] = fold
+        metrics["train_end"] = str(train["timestamp"].max())
+        metrics["test_end"] = str(test["timestamp"].max())
+        rows.append(metrics)
+        log.info(
+            "fold %s/%s  MAE=%.4f RMSE=%.4f R2=%.4f",
+            fold,
+            n_splits,
+            metrics["mae"],
+            metrics["rmse"],
+            metrics["r2"],
+        )
+    return pd.DataFrame(rows)
