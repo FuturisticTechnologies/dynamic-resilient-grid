@@ -28,7 +28,7 @@ try:  # pragma: no cover - import guard
     from torch.utils.data import DataLoader, TensorDataset
 
     TORCH_AVAILABLE = True
-except ImportError:  # pragma: no cover
+except Exception:  # pragma: no cover
     torch = None  # type: ignore[assignment]
     nn = object  # type: ignore[assignment]
     TORCH_AVAILABLE = False
