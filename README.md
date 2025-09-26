@@ -88,7 +88,8 @@ to public key-free APIs and a calibrated synthetic smart-meter generator (see
 Optional extras:
 
 ```bash
-pip install -r requirements-deep.txt    # PyTorch LSTM
+pip install -r requirements-deep.txt    # PyTorch LSTM  (Windows also needs the MSVC runtime:
+                                        # https://aka.ms/vs/17/release/vc_redist.x64.exe)
 pip install -r requirements-azure.txt   # Azure SDKs, MLflow, Azure ML
 pip install -r requirements-dev.txt     # pytest, ruff, black
 ```

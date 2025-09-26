@@ -28,7 +28,7 @@ try:  # pragma: no cover - import guard
     from torch.utils.data import DataLoader, TensorDataset
 
     TORCH_AVAILABLE = True
-except ImportError:  # pragma: no cover
+except Exception:  # pragma: no cover
     torch = None  # type: ignore[assignment]
     nn = object  # type: ignore[assignment]
     TORCH_AVAILABLE = False
@@ -258,3 +258,104 @@ class LSTMForecaster:
             ),
             "history": self.history,
         }
+
+
+# ===========================================================================
+# torch-free neural fallback
+# ===========================================================================
+class SequenceMLPForecaster:
+    """Feed-forward neural network over a flattened demand window.
+
+    PyTorch needs native binaries (on Windows, the Microsoft Visual C++
+    runtime) that are not always present on an analyst workstation. This
+    scikit-learn multi-layer perceptron keeps the deep-learning arm of the
+    study executable everywhere: the input is the last ``sequence_length``
+    half-hourly demand values concatenated with the engineered exogenous
+    features for the target period, so the network still learns the shape of
+    the recent trajectory rather than a single lag.
+    """
+
+    name = "mlp_sequence"
+
+    def __init__(
+        self,
+        sequence_length: int = 48,
+        hidden_layer_sizes: tuple[int, ...] = (128, 64),
+        max_iter: int = 60,
+        learning_rate_init: float = 1e-3,
+        seed: int = 42,
+        **_: Any,
+    ) -> None:
+        from sklearn.impute import SimpleImputer
+        from sklearn.neural_network import MLPRegressor
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        self.sequence_length = int(sequence_length)
+        self.feature_columns: list[str] = []
+        self.pipeline = Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="median")),
+                ("scale", StandardScaler()),
+                (
+                    "model",
+                    MLPRegressor(
+                        hidden_layer_sizes=hidden_layer_sizes,
+                        activation="relu",
+                        solver="adam",
+                        learning_rate_init=learning_rate_init,
+                        max_iter=max_iter,
+                        early_stopping=True,
+                        n_iter_no_change=6,
+                        validation_fraction=0.1,
+                        random_state=seed,
+                    ),
+                ),
+            ]
+        )
+
+    # ------------------------------------------------------------- design
+    def _design(self, df: pd.DataFrame, target_col: str) -> np.ndarray:
+        """[demand(t-seq) ... demand(t-1)] ++ exogenous features at t."""
+        seq = self.sequence_length
+        blocks: list[np.ndarray] = []
+        order: list[np.ndarray] = []
+        for _, sub in df.groupby("neighbourhood_id", observed=True, sort=False):
+            sub = sub.sort_values("timestamp")
+            history = sub[target_col].to_numpy(dtype=float)
+            padded = np.concatenate([np.full(seq, history[0]), history])[:-1]
+            windows = np.lib.stride_tricks.sliding_window_view(padded, seq)[: len(sub)]
+            blocks.append(np.hstack([windows, sub[self.feature_columns].to_numpy(dtype=float)]))
+            order.append(sub.index.to_numpy())
+        design = np.vstack(blocks)
+        inverse = np.argsort(np.concatenate(order))
+        return design[inverse]
+
+    # ---------------------------------------------------------------- fit
+    def fit(
+        self,
+        train: pd.DataFrame,
+        feature_cols: list[str],
+        target_col: str,
+        val: pd.DataFrame | None = None,
+    ) -> "SequenceMLPForecaster":
+        self.feature_columns = list(feature_cols)
+        frame = train.reset_index(drop=True)
+        X = self._design(frame, target_col)
+        y = frame[target_col].to_numpy(dtype=float)
+        self.pipeline.fit(X, y)
+        model = self.pipeline.named_steps["model"]
+        # with early_stopping=True sklearn tracks a validation score, not a loss
+        score = model.best_validation_score_ if model.early_stopping else model.best_loss_
+        log.info(
+            "mlp_sequence fitted on %s rows x %s inputs (%s iterations, best score %s)",
+            f"{len(frame):,}",
+            X.shape[1],
+            model.n_iter_,
+            f"{score:.5f}" if score is not None else "n/a",
+        )
+        return self
+
+    def predict(self, df: pd.DataFrame, target_col: str = "demand_kwh") -> np.ndarray:
+        frame = df.reset_index(drop=True)
+        return np.clip(self.pipeline.predict(self._design(frame, target_col)), 0.0, None)
