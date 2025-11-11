@@ -90,3 +90,67 @@ def detect_stress(
         labels=["normal", "elevated", "high", "critical"],
     )
     return df
+
+
+def stress_events(
+    flagged: pd.DataFrame,
+    min_periods: int = 2,
+    value_col: str = "demand_kwh",
+    flag_col: str = "is_stress",
+) -> pd.DataFrame:
+    """Collapse consecutive flagged half-hours into discrete stress events."""
+    events: list[dict[str, Any]] = []
+    for nid, sub in flagged.groupby("neighbourhood_id", observed=True):
+        sub = sub.sort_values("timestamp").reset_index(drop=True)
+        flag = sub[flag_col].to_numpy().astype(bool)
+        if not flag.any():
+            continue
+        # event id increments whenever a run of True starts
+        breaks = np.diff(flag.astype(int), prepend=0) == 1
+        event_id = np.cumsum(breaks) * flag
+        for eid in np.unique(event_id[event_id > 0]):
+            block = sub[event_id == eid]
+            if len(block) < min_periods:
+                continue
+            events.append(
+                {
+                    "neighbourhood_id": nid,
+                    "start": block["timestamp"].iloc[0],
+                    "end": block["timestamp"].iloc[-1],
+                    "duration_periods": int(len(block)),
+                    "duration_hours": float(len(block) * 0.5),
+                    "peak_kwh": float(block[value_col].max()),
+                    "mean_kwh": float(block[value_col].mean()),
+                    "threshold_kwh": float(block["threshold_primary_kwh"].iloc[0]),
+                    "peak_exceedance_kwh": float(
+                        block[value_col].max() - block["threshold_primary_kwh"].iloc[0]
+                    ),
+                    "peak_exceedance_pct": float(
+                        100.0 * (block[value_col].max() / block["threshold_primary_kwh"].iloc[0] - 1.0)
+                    ),
+                    "energy_above_threshold_kwh": float(block["stress_margin_kwh"].clip(lower=0).sum()),
+                    "season": _season_name(int(block["timestamp"].iloc[0].month)),
+                    "start_period": int(
+                        block["timestamp"].iloc[0].hour * 2 + block["timestamp"].iloc[0].minute // 30
+                    ),
+                }
+            )
+    if not events:
+        return pd.DataFrame(
+            columns=[
+                "neighbourhood_id",
+                "start",
+                "end",
+                "duration_periods",
+                "duration_hours",
+                "peak_kwh",
+                "mean_kwh",
+                "threshold_kwh",
+                "peak_exceedance_kwh",
+                "peak_exceedance_pct",
+                "energy_above_threshold_kwh",
+                "season",
+                "start_period",
+            ]
+        )
+    return pd.DataFrame(events).sort_values(["neighbourhood_id", "start"]).reset_index(drop=True)
