@@ -72,7 +72,7 @@ def train_models(
         val = train.tail(max(1, len(train) // 10))
 
     stress_threshold = _global_stress_threshold(
-        features, float(cfg.stress.get("primary_percentile", 95)), target
+        train, float(cfg.stress.get("primary_percentile", 95)), target
     )
 
     results: list[dict[str, Any]] = []
