@@ -154,3 +154,77 @@ def stress_events(
             ]
         )
     return pd.DataFrame(events).sort_values(["neighbourhood_id", "start"]).reset_index(drop=True)
+
+
+def _season_name(month: int) -> str:
+    if month in (12, 1, 2):
+        return "winter"
+    if month in (3, 4, 5):
+        return "spring"
+    if month in (6, 7, 8):
+        return "summer"
+    return "autumn"
+
+
+def stress_summary(
+    flagged: pd.DataFrame,
+    events: pd.DataFrame | None = None,
+    value_col: str = "demand_kwh",
+) -> pd.DataFrame:
+    """Per-neighbourhood stress frequency, duration and intensity metrics."""
+    rows: list[dict[str, Any]] = []
+    for nid, sub in flagged.groupby("neighbourhood_id", observed=True):
+        n = len(sub)
+        stress = sub[sub["is_stress"] == 1]
+        ev = events[events["neighbourhood_id"] == nid] if events is not None and len(events) else None
+        span_days = max((sub["timestamp"].max() - sub["timestamp"].min()).total_seconds() / 86400.0, 1.0)
+        rows.append(
+            {
+                "neighbourhood_id": nid,
+                "n_periods": n,
+                "stress_periods": int(len(stress)),
+                "stress_frequency_pct": float(100.0 * len(stress) / n) if n else 0.0,
+                "stress_hours": float(0.5 * len(stress)),
+                "stress_hours_per_week": float(0.5 * len(stress) / span_days * 7.0),
+                "sensitivity_stress_pct": float(100.0 * sub["is_stress_sensitivity"].sum() / n) if n else 0.0,
+                "peak_kwh": float(sub[value_col].max()),
+                "mean_kwh": float(sub[value_col].mean()),
+                "threshold_kwh": float(sub["threshold_primary_kwh"].iloc[0]),
+                "peak_to_threshold_ratio": float(sub[value_col].max() / sub["threshold_primary_kwh"].iloc[0]),
+                "load_factor": (
+                    float(sub[value_col].mean() / sub[value_col].max()) if sub[value_col].max() else np.nan
+                ),
+                "energy_above_threshold_kwh": float(sub["stress_margin_kwh"].clip(lower=0).sum()),
+                "n_events": int(len(ev)) if ev is not None else np.nan,
+                "mean_event_hours": float(ev["duration_hours"].mean()) if ev is not None and len(ev) else 0.0,
+                "max_event_hours": float(ev["duration_hours"].max()) if ev is not None and len(ev) else 0.0,
+            }
+        )
+    return pd.DataFrame(rows).sort_values("neighbourhood_id").reset_index(drop=True)
+
+
+def seasonal_stress_profile(flagged: pd.DataFrame) -> pd.DataFrame:
+    """Stress frequency by season and by half-hour of day."""
+    df = flagged.copy()
+    df["season"] = df["timestamp"].dt.month.map(_season_name)
+    df["period_of_day"] = df["timestamp"].dt.hour * 2 + df["timestamp"].dt.minute // 30
+    by_season = (
+        df.groupby(["neighbourhood_id", "season"], observed=True)["is_stress"]
+        .agg(["mean", "sum", "count"])
+        .reset_index()
+        .rename(columns={"mean": "stress_rate", "sum": "stress_periods", "count": "n_periods"})
+    )
+    by_season["stress_rate"] *= 100.0
+    return by_season
+
+
+def diurnal_stress_profile(flagged: pd.DataFrame) -> pd.DataFrame:
+    df = flagged.copy()
+    df["period_of_day"] = df["timestamp"].dt.hour * 2 + df["timestamp"].dt.minute // 30
+    return (
+        df.groupby(["neighbourhood_id", "period_of_day"], observed=True)["is_stress"]
+        .mean()
+        .mul(100.0)
+        .reset_index()
+        .rename(columns={"is_stress": "stress_rate_pct"})
+    )
