@@ -60,6 +60,23 @@ class EVConfig:
         return cls(**{k: v for k, v in cfg.items() if k in fields})
 
 
+@dataclass
+class HeatPumpConfig:
+    rated_kw: float = 2.5
+    base_temperature_c: float = 15.5
+    kw_per_degree: float = 0.085
+    evening_peak_hours: tuple[float, float, float, float] = (6.0, 9.0, 16.0, 22.0)
+    diversity_factor: float = 0.7
+
+    @classmethod
+    def from_config(cls, cfg: dict[str, Any]) -> "HeatPumpConfig":
+        fields = set(cls.__dataclass_fields__)  # type: ignore[attr-defined]
+        payload = {k: v for k, v in cfg.items() if k in fields}
+        if "evening_peak_hours" in payload:
+            payload["evening_peak_hours"] = tuple(payload["evening_peak_hours"])
+        return cls(**payload)
+
+
 def _site_seed(neighbourhood_id: object, modulus: int) -> int:
     """Process-stable per-site seed offset (``hash()`` is randomised)."""
     return int(zlib.crc32(str(neighbourhood_id).encode("utf-8")) % modulus)
@@ -136,4 +153,72 @@ def simulate_ev_load(
     mean = aligned.mean(axis=0)
     if return_band:
         return mean, np.percentile(aligned, 10, axis=0), np.percentile(aligned, 90, axis=0)
+    return mean
+
+
+# ===========================================================================
+# heat pumps
+# ===========================================================================
+def _heat_pump_shape(period_of_day: np.ndarray, cfg: HeatPumpConfig) -> np.ndarray:
+    """Occupancy-driven shaping factor with morning and evening peaks."""
+    m_start, m_end, e_start, e_end = cfg.evening_peak_hours
+    hours = period_of_day / 2.0
+    morning = np.exp(-0.5 * ((hours - (m_start + m_end) / 2) / 1.6) ** 2)
+    evening = np.exp(-0.5 * ((hours - (e_start + e_end) / 2) / 2.6) ** 2)
+    setback = 0.35  # overnight / away frost protection
+    return setback + 0.75 * morning + 1.0 * evening
+
+
+def simulate_heat_pump_load(
+    timestamps: pd.DatetimeIndex,
+    n_households: int,
+    adoption: float,
+    temperature_c: np.ndarray | pd.Series | None = None,
+    config: HeatPumpConfig | None = None,
+    *,
+    seed: int = 42,
+    runs: int = 1,
+    return_band: bool = False,
+) -> np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Aggregate heat-pump electrical demand (kWh per half hour)."""
+    cfg = config or HeatPumpConfig()
+    timestamps = pd.DatetimeIndex(timestamps)
+    n_hp = int(round(n_households * float(adoption)))
+    if n_hp <= 0 or len(timestamps) == 0:
+        zeros = np.zeros(len(timestamps))
+        return (zeros, zeros, zeros) if return_band else zeros
+
+    period_of_day = (timestamps.hour * 2 + timestamps.minute // 30).to_numpy()
+    shape = _heat_pump_shape(period_of_day, cfg)
+
+    if temperature_c is not None:
+        temp = (
+            pd.Series(np.asarray(temperature_c, dtype=float)).interpolate(limit_direction="both").to_numpy()
+        )
+        hdd = np.clip(cfg.base_temperature_c - temp, 0.0, None)
+    else:  # winter-seasonal proxy when no temperature is available
+        doy = timestamps.dayofyear.to_numpy(dtype=float)
+        hdd = np.clip(6.5 + 6.0 * np.cos(2 * np.pi * (doy - 20) / 365.25), 0.0, None)
+
+    profiles = np.zeros((runs, len(timestamps)), dtype=float)
+    for run in range(runs):
+        rng = np.random.default_rng(seed + 3607 * run)
+        # per-household thermal efficiency / setpoint spread
+        spread = np.clip(rng.normal(1.0, 0.18, n_hp), 0.4, 1.8)
+        # thermostat cycling noise, common-mode across the fleet
+        cycling = np.clip(rng.normal(1.0, 0.08, len(timestamps)), 0.6, 1.4)
+
+        # cycling is applied *inside* the clip: a unit can modulate below its
+        # rating but never draw more than its rated electrical input
+        per_hh_kw = np.clip(
+            cfg.kw_per_degree * hdd[:, None] * shape[:, None] * spread[None, :] * cycling[:, None],
+            0.0,
+            cfg.rated_kw,
+        )
+        profiles[run] = per_hh_kw.sum(axis=1) * HOURS_PER_PERIOD
+
+    profiles *= cfg.diversity_factor
+    mean = profiles.mean(axis=0)
+    if return_band:
+        return mean, np.percentile(profiles, 10, axis=0), np.percentile(profiles, 90, axis=0)
     return mean
