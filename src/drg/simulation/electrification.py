@@ -281,10 +281,7 @@ def apply_scenario(
 
     out = pd.concat(frames, ignore_index=True)
     base_peak = float(out.groupby("neighbourhood_id")["base_kwh"].max().mean())
-    new_peak = base_peak + sum(
-        float(out.groupby("neighbourhood_id")[col].max().mean())
-        for col in ("ev_kwh", "heat_pump_kwh")
-    )
+    new_peak = float(out.groupby("neighbourhood_id")["electrified_kwh"].max().mean())
 
     # After-diversity maximum demand per adopting household -- the quantity UK
     # DNOs use for reinforcement planning, exposed so the simulation can be
