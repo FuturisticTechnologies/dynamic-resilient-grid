@@ -77,6 +77,15 @@ class HeatPumpConfig:
         return cls(**payload)
 
 
+@dataclass
+class ScenarioResult:
+    frame: pd.DataFrame
+    summary: dict[str, Any] = field(default_factory=dict)
+
+    def __getitem__(self, key: str) -> Any:
+        return self.summary[key]
+
+
 def _site_seed(neighbourhood_id: object, modulus: int) -> int:
     """Process-stable per-site seed offset (``hash()`` is randomised)."""
     return int(zlib.crc32(str(neighbourhood_id).encode("utf-8")) % modulus)
@@ -222,3 +231,115 @@ def simulate_heat_pump_load(
     if return_band:
         return mean, np.percentile(profiles, 10, axis=0), np.percentile(profiles, 90, axis=0)
     return mean
+
+
+# ===========================================================================
+# scenario application
+# ===========================================================================
+def apply_scenario(
+    df: pd.DataFrame,
+    ev_adoption: float,
+    hp_adoption: float,
+    *,
+    value_col: str = "demand_kwh",
+    ev_config: EVConfig | None = None,
+    hp_config: HeatPumpConfig | None = None,
+    seed: int = 42,
+    runs: int = 1,
+    households_col: str = "n_households",
+) -> ScenarioResult:
+    """Add simulated EV + heat-pump load to a base demand frame.
+
+    The input frame must contain ``timestamp``, ``neighbourhood_id``,
+    ``value_col`` and ``households_col``; ``temperature_c`` is used when
+    present. The returned frame adds ``ev_kwh``, ``heat_pump_kwh`` and
+    ``electrified_kwh``.
+    """
+    frames: list[pd.DataFrame] = []
+    for nid, sub in df.groupby("neighbourhood_id", observed=True, sort=True):
+        sub = sub.sort_values("timestamp").copy()
+        ts = pd.DatetimeIndex(sub["timestamp"])
+        households = int(sub[households_col].iloc[0]) if households_col in sub else 100
+
+        ev = simulate_ev_load(
+            ts, households, ev_adoption, ev_config, seed=seed + _site_seed(nid, 997), runs=runs
+        )
+        hp = simulate_heat_pump_load(
+            ts,
+            households,
+            hp_adoption,
+            sub.get("temperature_c"),
+            hp_config,
+            seed=seed + _site_seed(nid, 991),
+            runs=runs,
+        )
+        sub["base_kwh"] = sub[value_col].astype(float)
+        sub["ev_kwh"] = ev
+        sub["heat_pump_kwh"] = hp
+        sub["electrified_kwh"] = sub["base_kwh"] + sub["ev_kwh"] + sub["heat_pump_kwh"]
+        frames.append(sub)
+
+    out = pd.concat(frames, ignore_index=True)
+    base_peak = float(out.groupby("neighbourhood_id")["base_kwh"].max().mean())
+    new_peak = float(out.groupby("neighbourhood_id")["electrified_kwh"].max().mean())
+
+    # After-diversity maximum demand per adopting household -- the quantity UK
+    # DNOs use for reinforcement planning, exposed so the simulation can be
+    # checked against published ADMD figures (~1.5-2 kW for both technologies).
+    households = (
+        out.groupby("neighbourhood_id")[households_col].first().mean()
+        if households_col in out
+        else float("nan")
+    )
+    n_ev = households * float(ev_adoption)
+    n_hp = households * float(hp_adoption)
+    ev_admd = (
+        float(out.groupby("timestamp")["ev_kwh"].sum().max() / out["neighbourhood_id"].nunique() / n_ev * 2.0)
+        if n_ev
+        else 0.0
+    )
+    hp_admd = (
+        float(
+            out.groupby("timestamp")["heat_pump_kwh"].sum().max()
+            / out["neighbourhood_id"].nunique()
+            / n_hp
+            * 2.0
+        )
+        if n_hp
+        else 0.0
+    )
+
+    summary = {
+        "ev_adoption": float(ev_adoption),
+        "hp_adoption": float(hp_adoption),
+        "base_mean_kwh": float(out["base_kwh"].mean()),
+        "electrified_mean_kwh": float(out["electrified_kwh"].mean()),
+        "base_peak_kwh": base_peak,
+        "electrified_peak_kwh": new_peak,
+        "peak_amplification_pct": float(100.0 * (new_peak / base_peak - 1.0)) if base_peak else 0.0,
+        "energy_growth_pct": float(100.0 * (out["electrified_kwh"].sum() / out["base_kwh"].sum() - 1.0)),
+        "ev_energy_kwh": float(out["ev_kwh"].sum()),
+        "heat_pump_energy_kwh": float(out["heat_pump_kwh"].sum()),
+        "ev_admd_kw": ev_admd,
+        "heat_pump_admd_kw": hp_admd,
+        "ev_kwh_per_car_per_day": (
+            float(
+                out["ev_kwh"].sum()
+                / out["neighbourhood_id"].nunique()
+                / n_ev
+                / out["timestamp"].nunique()
+                * 48.0
+            )
+            if n_ev
+            else 0.0
+        ),
+        "monte_carlo_runs": int(runs),
+    }
+    log.info(
+        "scenario EV=%.0f%% HP=%.0f%% -> peak +%.1f%%, energy +%.1f%%",
+        ev_adoption * 100,
+        hp_adoption * 100,
+        summary["peak_amplification_pct"],
+        summary["energy_growth_pct"],
+    )
+    return ScenarioResult(frame=out, summary=summary)
