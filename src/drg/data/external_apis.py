@@ -37,6 +37,7 @@ log = get_logger(__name__)
 
 _TIMEOUT = 20
 _USER_AGENT = "DynamicResilientGrid/1.0 (academic research prototype)"
+CARBON_ARCHIVE_START = pd.Timestamp("2018-01-01")
 
 
 def _session(cache_path: Path | None = None, cache_hours: int = 6) -> requests.Session:
@@ -72,6 +73,177 @@ def _get_json(session: requests.Session, url: str, params: dict | None = None) -
     if not isinstance(payload, dict):
         raise ValueError(f"Unexpected payload type from {url}: {type(payload)}")
     return payload
+
+
+# ===========================================================================
+# Carbon intensity
+# ===========================================================================
+@dataclass
+class CarbonIntensityClient:
+    """National Grid ESO Carbon Intensity API (no API key required)."""
+
+    base_url: str = "https://api.carbonintensity.org.uk"
+    region_id: int = 13  # London
+    cache_dir: Path | None = None
+    cache_hours: int = 6
+    session: requests.Session = field(init=False)
+
+    def __post_init__(self) -> None:
+        cache = (self.cache_dir / "carbon_http_cache") if self.cache_dir else None
+        if cache is not None:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+        self.session = _session(cache, self.cache_hours)
+
+    # ---------------------------------------------------------------- live
+    def current(self) -> dict[str, Any]:
+        """Latest national + regional intensity and generation mix."""
+        out: dict[str, Any] = {
+            "timestamp": pd.Timestamp.utcnow().isoformat(),
+            "source": "carbon-intensity-api",
+        }
+        try:
+            national = _get_json(self.session, f"{self.base_url}/intensity")
+            entry = national["data"][0]
+            out["national_forecast_gco2_kwh"] = entry["intensity"].get("forecast")
+            out["national_actual_gco2_kwh"] = entry["intensity"].get("actual")
+            out["index"] = entry["intensity"].get("index")
+            out["from"] = entry.get("from")
+            out["to"] = entry.get("to")
+        except Exception as exc:
+            log.warning("carbon intensity (national) unavailable: %s", exc)
+            out["source"] = "unavailable"
+            out["error"] = str(exc)
+
+        try:
+            regional = _get_json(self.session, f"{self.base_url}/regional/regionid/{self.region_id}")
+            rdata = regional["data"][0]
+            period = rdata["data"][0]
+            out["region"] = rdata.get("shortname")
+            out["regional_forecast_gco2_kwh"] = period["intensity"].get("forecast")
+            out["regional_index"] = period["intensity"].get("index")
+            out["generation_mix"] = {g["fuel"]: g["perc"] for g in period.get("generationmix", [])}
+        except Exception as exc:
+            log.warning("carbon intensity (regional) unavailable: %s", exc)
+        return out
+
+    # ------------------------------------------------------------ historical
+    def range(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+        """Half-hourly national intensity between ``start`` and ``end``.
+
+        The API serves a maximum of 14 days per call, so the window is walked
+        in fortnightly slices.
+        """
+        rows: list[dict[str, Any]] = []
+        cursor = pd.Timestamp(start).tz_localize(None)
+        end = pd.Timestamp(end).tz_localize(None)
+        while cursor < end:
+            chunk_end = min(cursor + pd.Timedelta(days=13), end)
+            url = (
+                f"{self.base_url}/intensity/"
+                f"{cursor.strftime('%Y-%m-%dT%H:%MZ')}/"
+                f"{chunk_end.strftime('%Y-%m-%dT%H:%MZ')}"
+            )
+            try:
+                payload = _get_json(self.session, url)
+            except Exception as exc:
+                log.warning("carbon range %s..%s failed: %s", cursor.date(), chunk_end.date(), exc)
+                break
+            for item in payload.get("data", []):
+                rows.append(
+                    {
+                        "timestamp": pd.to_datetime(item["from"]).tz_localize(None),
+                        "carbon_intensity_gco2_kwh": item["intensity"].get("actual")
+                        or item["intensity"].get("forecast"),
+                    }
+                )
+            cursor = chunk_end
+        if not rows:
+            return pd.DataFrame(columns=["timestamp", "carbon_intensity_gco2_kwh"])
+        df = pd.DataFrame(rows).dropna().drop_duplicates("timestamp")
+        return df.sort_values("timestamp").reset_index(drop=True)
+
+
+def _carbon_climatology(reference: pd.DataFrame) -> pd.DataFrame:
+    """Month x half-hour-of-day median intensity from a reference window."""
+    ref = reference.copy()
+    ref["month"] = ref["timestamp"].dt.month
+    ref["period"] = ref["timestamp"].dt.hour * 2 + ref["timestamp"].dt.minute // 30
+    return ref.groupby(["month", "period"])["carbon_intensity_gco2_kwh"].median().reset_index()
+
+
+def _synthetic_carbon(index: pd.DatetimeIndex, seed: int = 42) -> pd.Series:
+    """Deterministic offline stand-in for GB carbon intensity (gCO2/kWh)."""
+    rng = np.random.default_rng(seed + 7)
+    doy = index.dayofyear.to_numpy(dtype=float)
+    period = (index.hour * 2 + index.minute // 30).to_numpy(dtype=float)
+    seasonal = 240 + 55 * np.cos(2 * np.pi * (doy - 20) / 365.25)
+    diurnal = 32 * np.sin(2 * np.pi * (period - 14) / 48.0) + 24 * np.exp(-0.5 * ((period - 37) / 5.0) ** 2)
+    noise = rng.normal(0, 18, len(index))
+    return pd.Series(np.clip(seasonal + diurnal + noise, 40, 520).round(1), index=index)
+
+
+def build_carbon_intensity_series(
+    index: pd.DatetimeIndex,
+    *,
+    base_url: str = "https://api.carbonintensity.org.uk",
+    region_id: int = 13,
+    cache_dir: Path | None = None,
+    allow_network: bool = True,
+) -> pd.DataFrame:
+    """Half-hourly carbon intensity aligned to ``index``.
+
+    Rows are tagged with their provenance: ``measured`` (from the API),
+    ``climatology-proxy`` (API archive mapped onto a pre-2018 period), or
+    ``synthetic`` (fully offline).
+    """
+    index = pd.DatetimeIndex(index).tz_localize(None)
+    start, end = index.min(), index.max()
+
+    client = CarbonIntensityClient(base_url=base_url, region_id=region_id, cache_dir=cache_dir)
+    measured = pd.DataFrame(columns=["timestamp", "carbon_intensity_gco2_kwh"])
+
+    if allow_network:
+        try:
+            if end >= CARBON_ARCHIVE_START:
+                measured = client.range(max(start, CARBON_ARCHIVE_START), end)
+            else:
+                # Historical period predates the archive: pull one reference
+                # year and project its climatology onto the study period.
+                ref_end = pd.Timestamp.utcnow().tz_localize(None).normalize()
+                measured = client.range(ref_end - pd.Timedelta(days=365), ref_end)
+        except Exception as exc:  # pragma: no cover - network dependent
+            log.warning("carbon intensity fetch failed entirely: %s", exc)
+
+    frame = pd.DataFrame({"timestamp": index})
+    if not measured.empty and end >= CARBON_ARCHIVE_START:
+        frame = frame.merge(measured, on="timestamp", how="left")
+        frame["source"] = np.where(frame["carbon_intensity_gco2_kwh"].notna(), "measured", "interpolated")
+        frame["carbon_intensity_gco2_kwh"] = frame["carbon_intensity_gco2_kwh"].interpolate(
+            limit_direction="both"
+        )
+    elif not measured.empty:
+        clim = _carbon_climatology(measured)
+        frame["month"] = frame["timestamp"].dt.month
+        frame["period"] = frame["timestamp"].dt.hour * 2 + frame["timestamp"].dt.minute // 30
+        frame = frame.merge(clim, on=["month", "period"], how="left").drop(columns=["month", "period"])
+        frame["source"] = "climatology-proxy"
+        frame["carbon_intensity_gco2_kwh"] = frame["carbon_intensity_gco2_kwh"].interpolate(
+            limit_direction="both"
+        )
+    else:
+        frame["carbon_intensity_gco2_kwh"] = _synthetic_carbon(index).to_numpy()
+        frame["source"] = "synthetic"
+
+    if frame["carbon_intensity_gco2_kwh"].isna().all():
+        frame["carbon_intensity_gco2_kwh"] = _synthetic_carbon(index).to_numpy()
+        frame["source"] = "synthetic"
+
+    log.info(
+        "carbon intensity series: %s rows (%s)",
+        f"{len(frame):,}",
+        frame["source"].value_counts().to_dict(),
+    )
+    return frame
 
 
 # ===========================================================================
