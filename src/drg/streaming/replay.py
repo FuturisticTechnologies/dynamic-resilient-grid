@@ -192,7 +192,7 @@ class StreamingReplayEngine:
     # ------------------------------------------------------------ internals
     def forecast_next(self, window: pd.DataFrame) -> tuple[float, pd.Timestamp]:
         """One-step-ahead forecast built from the current rolling window."""
-        next_ts = pd.Timestamp.now().floor("30min") + pd.Timedelta(minutes=30)
+        next_ts = pd.Timestamp(window["timestamp"].iloc[-1]) + pd.Timedelta(minutes=30)
         future = window.iloc[[-1]].copy()
         future["timestamp"] = next_ts
         future["demand_kwh"] = np.nan
