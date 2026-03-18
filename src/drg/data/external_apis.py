@@ -415,3 +415,30 @@ def build_temperature_series(
         frame["temperature_c"] = frame["temperature_c"].fillna(pd.Series(fill.to_numpy()))
         frame.loc[frame["temperature_c"].isna(), "source"] = "synthetic"
     return frame
+
+
+# ===========================================================================
+# combined live snapshot (used by the API + dashboard)
+# ===========================================================================
+def fetch_context_snapshot(
+    latitude: float,
+    longitude: float,
+    *,
+    api_key: str = "",
+    carbon_base_url: str = "https://api.carbonintensity.org.uk",
+    region_id: int = 13,
+    cache_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Live weather + carbon intensity, for the dashboard context panel."""
+    weather = WeatherClient(
+        latitude=latitude, longitude=longitude, api_key=api_key, cache_dir=cache_dir
+    ).current()
+    carbon = CarbonIntensityClient(
+        base_url=carbon_base_url, region_id=region_id, cache_dir=cache_dir
+    ).current()
+    return {
+        "retrieved_at": pd.Timestamp.utcnow().isoformat(),
+        "location": {"latitude": latitude, "longitude": longitude},
+        "weather": weather,
+        "carbon_intensity": carbon,
+    }
