@@ -63,6 +63,8 @@ def _mean_abs_importance(values: np.ndarray, columns: list[str]) -> pd.DataFrame
             "mean_shap": mean_signed,
         }
     ).sort_values("mean_abs_shap", ascending=False)
+    total = df["mean_abs_shap"].sum()
+    df["contribution_pct"] = 100.0 * df["mean_abs_shap"] / total if total else 0.0
     return df.reset_index(drop=True)
 
 
