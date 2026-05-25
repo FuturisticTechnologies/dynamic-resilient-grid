@@ -218,3 +218,154 @@ if metrics_json:
     )
 else:
     k5.metric("Forecast R²", "n/a", help="Run: python -m drg.cli train")
+
+tab_live, tab_stress = st.tabs(
+    ["Live & forecast", "Stress profile"]
+)
+
+
+# ===========================================================================
+# 1. live replay
+# ===========================================================================
+with tab_live:
+    st.subheader("Streaming replay with rolling forecast")
+    bundle = load_bundle()
+    if bundle is None:
+        st.warning("No trained model found — run `python -m drg.cli train` to enable forecasting.")
+    else:
+        from drg.streaming.replay import StreamingReplayEngine
+
+        steps = st.slider("Replay length (half-hourly steps)", 48, 672, 336, 48)
+        window = int(cfg.streaming.get("window_periods", 336))
+        engine = StreamingReplayEngine(
+            demand,
+            bundle,
+            thresholds,
+            cfg,
+            neighbourhood_id=site,
+            start_index=max(len(site_demand) - steps - 1, window + 1),
+        )
+        ticks = pd.DataFrame([t.to_dict() for t in engine.stream(n=steps)])
+        ticks["timestamp"] = pd.to_datetime(ticks["timestamp"])
+
+        latest = ticks.iloc[-1]
+        c1, c2, c3 = st.columns([2, 1, 1])
+        c1.markdown(
+            f"**Current state** &nbsp; {severity_badge(str(latest['severity']))}",
+            unsafe_allow_html=True,
+        )
+        c2.metric(
+            "Headroom to threshold", f"{latest['headroom_kwh']:,.1f} kWh", f"{latest['headroom_pct']:.1f}%"
+        )
+        c3.metric("Alerts in window", int(ticks["is_stress"].sum() + ticks["forecast_is_stress"].sum()))
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=ticks["timestamp"],
+                y=ticks["actual_kwh"],
+                name="Measured demand",
+                mode="lines",
+                line={"color": SERIES[0], "width": 2},
+                hovertemplate="%{y:.1f} kWh<extra>Measured</extra>",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=ticks["forecast_timestamp"].astype("datetime64[ns]"),
+                y=ticks["forecast_next_kwh"],
+                name="One-step forecast",
+                mode="lines",
+                line={"color": SERIES[1], "width": 2, "dash": "dot"},
+                hovertemplate="%{y:.1f} kWh<extra>Forecast</extra>",
+            )
+        )
+        stressed = ticks[ticks["is_stress"]]
+        if len(stressed):
+            fig.add_trace(
+                go.Scatter(
+                    x=stressed["timestamp"],
+                    y=stressed["actual_kwh"],
+                    name="Stress period",
+                    mode="markers",
+                    marker={"color": STATUS["critical"], "size": 9, "line": {"color": "#fcfcfb", "width": 2}},
+                    hovertemplate="%{y:.1f} kWh<extra>Stress</extra>",
+                )
+            )
+        fig.add_hline(
+            y=threshold,
+            line={"color": INK_MUTED, "width": 1, "dash": "dash"},
+            annotation_text=f"P{int(cfg.stress['primary_percentile'])} threshold " f"{threshold:,.0f} kWh",
+            annotation_position="top left",
+            annotation_font={"color": INK_MUTED, "size": 11},
+        )
+        fig.update_layout(**base_layout("Measured vs forecast demand", height=430))
+        fig.update_yaxes(title_text="kWh per half hour")
+        st.plotly_chart(fig, use_container_width=True)
+
+        table_view(
+            ticks[
+                [
+                    "timestamp",
+                    "actual_kwh",
+                    "forecast_next_kwh",
+                    "threshold_kwh",
+                    "severity",
+                    "is_stress",
+                    "forecast_is_stress",
+                ]
+            ].round(2),
+            "Replay tick log",
+        )
+
+
+# ===========================================================================
+# 2. stress profile
+# ===========================================================================
+with tab_stress:
+    st.subheader("Historical statistical stress")
+    events = stress_events(flagged_hist, min_periods=int(cfg.stress["min_event_periods"]))
+    summary = stress_summary(flagged_hist, events)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Stress events", int(len(events)))
+    c2.metric("Stress hours / week", f"{summary['stress_hours_per_week'].iloc[0]:.1f}")
+    c3.metric("Mean event duration", f"{summary['mean_event_hours'].iloc[0]:.1f} h")
+    c4.metric("Peak / threshold", f"{summary['peak_to_threshold_ratio'].iloc[0]:.2f}×")
+
+    diurnal = diurnal_stress_profile(flagged_hist)
+    diurnal = diurnal[diurnal["neighbourhood_id"] == site]
+    fig = go.Figure(
+        go.Bar(
+            x=diurnal["period_of_day"] / 2.0,
+            y=diurnal["stress_rate_pct"],
+            marker={"color": SERIES[0], "line": {"color": "#fcfcfb", "width": 2}},
+            hovertemplate="%{y:.1f}% of half-hours<extra>%{x}:00</extra>",
+            name="Stress rate",
+        )
+    )
+    fig.update_layout(**base_layout("When does stress occur? (share of half-hours above threshold)"))
+    fig.update_xaxes(title_text="Hour of day", dtick=2)
+    fig.update_yaxes(title_text="% of periods in stress")
+    st.plotly_chart(fig, use_container_width=True)
+
+    if len(events):
+        monthly = (
+            events.assign(month=lambda d: pd.to_datetime(d["start"]).dt.to_period("M").astype(str))
+            .groupby("month")
+            .agg(events=("duration_hours", "size"), hours=("duration_hours", "sum"))
+            .reset_index()
+        )
+        fig = go.Figure(
+            go.Bar(
+                x=monthly["month"],
+                y=monthly["hours"],
+                marker={"color": SERIES[2], "line": {"color": "#fcfcfb", "width": 2}},
+                hovertemplate="%{y:.1f} stress hours<extra>%{x}</extra>",
+                name="Stress hours",
+            )
+        )
+        fig.update_layout(**base_layout("Seasonal concentration of stress"))
+        fig.update_yaxes(title_text="Stress hours in month")
+        st.plotly_chart(fig, use_container_width=True)
+        table_view(events.tail(50).round(2), "Stress event log (most recent 50)")
