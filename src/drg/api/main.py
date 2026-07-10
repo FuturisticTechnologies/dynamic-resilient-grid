@@ -6,6 +6,10 @@ Endpoints (matching the JSON API surface in the proposal architecture):
     GET  /context             live weather + carbon intensity
     GET  /neighbourhoods      configured sites and their stress thresholds
     GET  /forecast            rolling one-step-ahead forecast + stress alert
+    GET  /stress              historical stress summary
+    POST /scenario            on-demand EV / heat-pump scenario evaluation
+    GET  /sensitivity         cached adoption sensitivity grid
+    GET  /explain             SHAP driver ranking for the champion model
     GET  /metrics             model evaluation metrics
 """
 
@@ -92,6 +96,25 @@ def _read_json(path) -> Any:
 
 
 # ===========================================================================
+# schemas
+# ===========================================================================
+class ScenarioRequest(BaseModel):
+    ev_adoption: float = Field(0.4, ge=0.0, le=1.0, description="Share of households with an EV")
+    hp_adoption: float = Field(0.3, ge=0.0, le=1.0, description="Share with a heat pump")
+    neighbourhood_id: str | None = Field(None, description="Restrict to one site")
+    days: int = Field(90, ge=7, le=730, description="Length of the evaluation window")
+    monte_carlo_runs: int = Field(1, ge=1, le=50)
+    charger_kw: float | None = Field(None, gt=0, le=22)
+    heat_pump_kw: float | None = Field(None, gt=0, le=15)
+
+
+class ScenarioResponse(BaseModel):
+    summary: dict[str, Any]
+    stress: list[dict[str, Any]]
+    profile: list[dict[str, Any]]
+
+
+# ===========================================================================
 # endpoints
 # ===========================================================================
 @app.get("/health")
@@ -163,6 +186,97 @@ def forecast(
         "n_alerts": len(stressed),
         "ticks": ticks,
     }
+
+
+@app.get("/stress")
+def stress(neighbourhood_id: str | None = Query(None)) -> dict[str, Any]:
+    demand = _demand()
+    if neighbourhood_id:
+        demand = demand[demand["neighbourhood_id"] == neighbourhood_id]
+        if demand.empty:
+            raise HTTPException(404, f"Unknown neighbourhood {neighbourhood_id}")
+    flagged = detect_stress(demand, _thresholds())
+    events = stress_events(flagged, min_periods=int(cfg.stress.get("min_event_periods", 2)))
+    summary = stress_summary(flagged, events)
+    return {
+        "summary": summary.to_dict(orient="records"),
+        "recent_events": events.tail(20).astype({"start": str, "end": str}).to_dict(orient="records"),
+        "n_events": int(len(events)),
+    }
+
+
+@app.post("/scenario", response_model=ScenarioResponse)
+def scenario(req: ScenarioRequest) -> ScenarioResponse:
+    """Evaluate an EV / heat-pump adoption scenario on demand."""
+    demand = _demand()
+    if req.neighbourhood_id:
+        demand = demand[demand["neighbourhood_id"] == req.neighbourhood_id]
+        if demand.empty:
+            raise HTTPException(404, f"Unknown neighbourhood {req.neighbourhood_id}")
+
+    cutoff = demand["timestamp"].max() - pd.Timedelta(days=req.days)
+    window = demand[demand["timestamp"] >= cutoff]
+
+    ev_cfg = EVConfig.from_config(cfg.electrification["ev"])
+    hp_cfg = HeatPumpConfig.from_config(cfg.electrification["heat_pump"])
+    if req.charger_kw:
+        ev_cfg.charger_kw = req.charger_kw
+    if req.heat_pump_kw:
+        hp_cfg.rated_kw = req.heat_pump_kw
+
+    result = apply_scenario(
+        window,
+        req.ev_adoption,
+        req.hp_adoption,
+        ev_config=ev_cfg,
+        hp_config=hp_cfg,
+        seed=cfg.seed,
+        runs=req.monte_carlo_runs,
+    )
+    flagged = detect_stress(result.frame, _thresholds(), value_col="electrified_kwh")
+    events = stress_events(
+        flagged,
+        min_periods=int(cfg.stress.get("min_event_periods", 2)),
+        value_col="electrified_kwh",
+    )
+    summary = stress_summary(flagged, events, value_col="electrified_kwh")
+
+    profile = (
+        result.frame.assign(
+            period_of_day=lambda d: d["timestamp"].dt.hour * 2 + d["timestamp"].dt.minute // 30
+        )
+        .groupby("period_of_day")[["base_kwh", "ev_kwh", "heat_pump_kwh", "electrified_kwh"]]
+        .mean()
+        .round(3)
+        .reset_index()
+    )
+    return ScenarioResponse(
+        summary=result.summary,
+        stress=summary.replace({np.nan: None}).to_dict(orient="records"),
+        profile=profile.to_dict(orient="records"),
+    )
+
+
+@app.get("/sensitivity")
+def sensitivity() -> dict[str, Any]:
+    path = cfg.paths.sensitivity_output
+    if not path.exists():
+        raise HTTPException(503, "Sensitivity grid not built. Run: python -m drg.cli scenarios")
+    grid = pd.read_parquet(path)
+    return {
+        "grid": grid.replace({np.nan: None}).to_dict(orient="records"),
+        "headline": _read_json(cfg.paths.report_dir / "sensitivity_summary.json"),
+    }
+
+
+@app.get("/explain")
+def explain(top: int = Query(15, ge=1, le=60)) -> dict[str, Any]:
+    payload = _read_json(cfg.paths.report_dir / "shap_summary.json")
+    if payload is None:
+        raise HTTPException(503, "SHAP report not built. Run: python -m drg.cli explain")
+    payload["top_global_drivers"] = payload.get("top_global_drivers", [])[:top]
+    payload["top_stress_drivers"] = payload.get("top_stress_drivers", [])[:top]
+    return payload
 
 
 @app.get("/metrics")
