@@ -219,8 +219,8 @@ if metrics_json:
 else:
     k5.metric("Forecast R²", "n/a", help="Run: python -m drg.cli train")
 
-tab_live, tab_stress = st.tabs(
-    ["Live & forecast", "Stress profile"]
+tab_live, tab_stress, tab_scenario, tab_sens = st.tabs(
+    ["Live & forecast", "Stress profile", "Scenario studio", "Sensitivity"]
 )
 
 
@@ -369,3 +369,184 @@ with tab_stress:
         fig.update_yaxes(title_text="Stress hours in month")
         st.plotly_chart(fig, use_container_width=True)
         table_view(events.tail(50).round(2), "Stress event log (most recent 50)")
+
+
+# ===========================================================================
+# 3. scenario studio
+# ===========================================================================
+with tab_scenario:
+    st.subheader("Electrification scenario studio")
+    cutoff = site_demand["timestamp"].max() - pd.Timedelta(days=window_days)
+    base_window = site_demand[site_demand["timestamp"] >= cutoff]
+
+    ev_cfg = EVConfig.from_config(cfg.electrification["ev"])
+    ev_cfg.charger_kw = charger_kw
+    hp_cfg = HeatPumpConfig.from_config(cfg.electrification["heat_pump"])
+
+    result = apply_scenario(
+        base_window,
+        ev_adoption,
+        hp_adoption,
+        ev_config=ev_cfg,
+        hp_config=hp_cfg,
+        seed=cfg.seed,
+        runs=1,
+    )
+    scen_flagged = detect_stress(result.frame, thresholds, value_col="electrified_kwh")
+    base_rate = 100.0 * flagged_hist[flagged_hist["timestamp"] >= cutoff]["is_stress"].mean()
+    scen_rate = 100.0 * scen_flagged["is_stress"].mean()
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Peak amplification", f"{result.summary['peak_amplification_pct']:+.1f}%")
+    c2.metric("Energy growth", f"{result.summary['energy_growth_pct']:+.1f}%")
+    c3.metric("Stress frequency", f"{scen_rate:.2f}%", f"{scen_rate - base_rate:+.2f} pp")
+    c4.metric(
+        "New peak",
+        f"{result.summary['electrified_peak_kwh']:,.0f} kWh/hh",
+        f"{result.summary['electrified_peak_kwh'] - result.summary['base_peak_kwh']:+,.0f}",
+    )
+
+    profile = (
+        result.frame.assign(period=lambda d: d["timestamp"].dt.hour * 2 + d["timestamp"].dt.minute // 30)
+        .groupby("period")[["base_kwh", "ev_kwh", "heat_pump_kwh", "electrified_kwh"]]
+        .mean()
+        .reset_index()
+    )
+    hours = profile["period"] / 2.0
+    fig = go.Figure()
+    for name, col, colour in (
+        ("Base demand", "base_kwh", SERIES[0]),
+        ("EV charging", "ev_kwh", SERIES[1]),
+        ("Heat pumps", "heat_pump_kwh", SERIES[2]),
+    ):
+        fig.add_trace(
+            go.Scatter(
+                x=hours,
+                y=profile[col],
+                name=name,
+                mode="lines",
+                stackgroup="load",
+                line={"color": colour, "width": 2},
+                hovertemplate="%{y:.1f} kWh<extra>" + name + "</extra>",
+            )
+        )
+    fig.add_hline(
+        y=threshold,
+        line={"color": INK_MUTED, "width": 1, "dash": "dash"},
+        annotation_text=f"Stress threshold {threshold:,.0f} kWh",
+        annotation_position="top left",
+        annotation_font={"color": INK_MUTED, "size": 11},
+    )
+    fig.update_layout(
+        **base_layout(f"Mean daily profile · EV {ev_adoption:.0%} · heat pumps {hp_adoption:.0%}", height=430)
+    )
+    fig.update_xaxes(title_text="Hour of day", dtick=2)
+    fig.update_yaxes(title_text="kWh per half hour")
+    st.plotly_chart(fig, use_container_width=True)
+    table_view(profile.round(2), "Mean daily profile by component")
+
+    worst_day = (
+        result.frame.assign(date=lambda d: d["timestamp"].dt.date)
+        .groupby("date")["electrified_kwh"]
+        .max()
+        .idxmax()
+    )
+    day = result.frame[result.frame["timestamp"].dt.date == worst_day]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=day["timestamp"],
+            y=day["base_kwh"],
+            name="Base demand",
+            mode="lines",
+            line={"color": SERIES[0], "width": 2},
+            hovertemplate="%{y:.1f} kWh<extra>Base</extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=day["timestamp"],
+            y=day["electrified_kwh"],
+            name="Electrified demand",
+            mode="lines",
+            line={"color": SERIES[1], "width": 2},
+            hovertemplate="%{y:.1f} kWh<extra>Electrified</extra>",
+        )
+    )
+    fig.add_hline(y=threshold, line={"color": INK_MUTED, "width": 1, "dash": "dash"})
+    fig.update_layout(**base_layout(f"Worst modelled day ({worst_day})"))
+    fig.update_yaxes(title_text="kWh per half hour")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# ===========================================================================
+# 4. sensitivity
+# ===========================================================================
+with tab_sens:
+    st.subheader("Adoption sensitivity")
+    grid = load_report("sensitivity_grid.parquet")
+    if grid is None:
+        st.info("Run `python -m drg.cli scenarios` to build the sensitivity grid.")
+    else:
+        pivot = grid.pivot_table(index="hp_adoption", columns="ev_adoption", values="peak_amplification_pct")
+        fig = go.Figure(
+            go.Heatmap(
+                z=pivot.to_numpy(),
+                x=[f"{c:.0%}" for c in pivot.columns],
+                y=[f"{i:.0%}" for i in pivot.index],
+                colorscale=SEQUENTIAL_BLUE,
+                colorbar={"title": "% peak<br>increase"},
+                hovertemplate="EV %{x} · HP %{y}<br>%{z:.1f}% peak increase<extra></extra>",
+                text=np.round(pivot.to_numpy(), 1),
+                texttemplate="%{text}",
+                textfont={"size": 11},
+            )
+        )
+        fig.update_layout(**base_layout("Peak amplification across the adoption grid", height=420))
+        fig.update_xaxes(title_text="EV adoption")
+        fig.update_yaxes(title_text="Heat pump adoption")
+        st.plotly_chart(fig, use_container_width=True)
+
+        fig = go.Figure()
+        for i, (hp_level, sub) in enumerate(grid.groupby("hp_adoption")):
+            sub = sub.sort_values("ev_adoption")
+            fig.add_trace(
+                go.Scatter(
+                    x=sub["ev_adoption"],
+                    y=sub["stress_frequency_pct"],
+                    name=f"Heat pumps {hp_level:.0%}",
+                    mode="lines+markers",
+                    line={"color": SERIES[i % len(SERIES)], "width": 2},
+                    marker={"size": 8, "line": {"color": "#fcfcfb", "width": 2}},
+                    hovertemplate="%{y:.2f}% of half-hours<extra>"
+                    f"HP {hp_level:.0%}" + " · EV %{x:.0%}</extra>",
+                )
+            )
+        fig.update_layout(**base_layout("Stress escalation with EV adoption"))
+        fig.update_xaxes(title_text="EV adoption", tickformat=".0%")
+        fig.update_yaxes(title_text="% of half-hours in stress")
+        st.plotly_chart(fig, use_container_width=True)
+
+        headline = load_report("sensitivity_summary.json")
+        if headline:
+            st.markdown(
+                f"**Worst modelled case — {headline['worst_case_scenario']}:** "
+                f"peak +{headline['worst_case_peak_amplification_pct']:.1f}%, "
+                f"stress frequency {headline['worst_case_stress_frequency_pct']:.2f}% of half-hours "
+                f"({headline.get('worst_case_stress_escalation_x', float('nan')):.1f}× the base case), "
+                f"mean event duration {headline['worst_case_mean_event_hours']:.1f} h."
+            )
+        table_view(
+            grid[
+                [
+                    "scenario",
+                    "ev_adoption",
+                    "hp_adoption",
+                    "peak_amplification_pct",
+                    "stress_frequency_pct",
+                    "mean_event_hours",
+                    "energy_growth_pct",
+                ]
+            ].round(2),
+            "Sensitivity grid",
+        )
