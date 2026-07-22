@@ -121,6 +121,7 @@ class ScenarioResponse(BaseModel):
 def health() -> dict[str, Any]:
     return {
         "status": "ok",
+        "version": __version__,
         "data_ready": cfg.paths.neighbourhood_demand.exists(),
         "model_ready": any(cfg.paths.model_dir.glob("*.joblib")),
     }
