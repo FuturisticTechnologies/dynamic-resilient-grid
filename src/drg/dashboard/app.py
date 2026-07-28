@@ -185,12 +185,7 @@ st.sidebar.caption("Sources: Open-Meteo / OpenWeatherMap · National Grid ESO Ca
 # ===========================================================================
 # header KPIs
 # ===========================================================================
-@st.cache_data(show_spinner=False)
-def site_series(days: int) -> pd.DataFrame:
-    return demand[demand["neighbourhood_id"] == site].sort_values("timestamp")
-
-
-site_demand = site_series(window_days)
+site_demand = demand[demand["neighbourhood_id"] == site].sort_values("timestamp")
 thresholds = load_thresholds_dict()
 threshold = thresholds[site].primary_kwh if site in thresholds else float("nan")
 flagged_hist = detect_stress(site_demand, thresholds)
