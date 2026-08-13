@@ -1,0 +1,138 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "notebooks/**"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+      runPipeline:
+        description: Run the retraining job after deploying
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write        # OIDC federated credential -- no stored secrets
+  contents: read
+
+env:
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-drg-dev' }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'uksouth' }}
+  ENVIRONMENT_NAME: ${{ inputs.environment || 'dev' }}
+  NAME_PREFIX: drg
+
+jobs:
+  deploy:
+    name: Provision and deploy
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set image tag
+        id: tag
+        run: echo "value=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure resource group
+        run: |
+          az group create -n "$AZURE_RESOURCE_GROUP" -l "$AZURE_LOCATION" --only-show-errors
+
+      - name: Validate the Bicep template
+        run: |
+          az deployment group validate \
+            -g "$AZURE_RESOURCE_GROUP" \
+            -f infra/azure/main.bicep \
+            -p infra/azure/main.parameters.json \
+            -p environmentName="$ENVIRONMENT_NAME" location="$AZURE_LOCATION" \
+               imageTag=${{ steps.tag.outputs.value }} \
+            --only-show-errors
+
+      - name: Deploy infrastructure
+        id: infra
+        run: |
+          az deployment group create \
+            -g "$AZURE_RESOURCE_GROUP" \
+            -n "drg-${{ steps.tag.outputs.value }}" \
+            -f infra/azure/main.bicep \
+            -p infra/azure/main.parameters.json \
+            -p environmentName="$ENVIRONMENT_NAME" location="$AZURE_LOCATION" \
+               imageTag=${{ steps.tag.outputs.value }} \
+               openWeatherApiKey="${{ secrets.DRG_OPENWEATHER_API_KEY }}" \
+            --only-show-errors
+          REGISTRY=$(az deployment group show -g "$AZURE_RESOURCE_GROUP" \
+            -n "drg-${{ steps.tag.outputs.value }}" \
+            --query properties.outputs.containerRegistry.value -o tsv)
+          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
+          echo "registryName=${REGISTRY%%.*}" >> "$GITHUB_OUTPUT"
+
+      - name: Build images in ACR Tasks
+        run: |
+          for spec in "drg-api:docker/Dockerfile.api" \
+                      "drg-dashboard:docker/Dockerfile.dashboard" \
+                      "drg-pipeline:docker/Dockerfile.pipeline"; do
+            image="${spec%%:*}"; file="${spec#*:}"
+            az acr build \
+              --registry "${{ steps.infra.outputs.registryName }}" \
+              --image "$image:${{ steps.tag.outputs.value }}" \
+              --image "$image:latest" \
+              --file "$file" . --only-show-errors
+          done
+
+      - name: Roll out the new images
+        run: |
+          az deployment group create \
+            -g "$AZURE_RESOURCE_GROUP" \
+            -n "drg-${{ steps.tag.outputs.value }}-apps" \
+            -f infra/azure/main.bicep \
+            -p infra/azure/main.parameters.json \
+            -p environmentName="$ENVIRONMENT_NAME" location="$AZURE_LOCATION" \
+               imageTag=${{ steps.tag.outputs.value }} \
+               openWeatherApiKey="${{ secrets.DRG_OPENWEATHER_API_KEY }}" \
+            --only-show-errors
+
+      - name: Run the retraining job
+        if: ${{ inputs.runPipeline != false }}
+        run: |
+          az containerapp job start \
+            --name "cj-${NAME_PREFIX}-${ENVIRONMENT_NAME}-pipeline" \
+            -g "$AZURE_RESOURCE_GROUP" --only-show-errors
+
+      - name: Smoke-test the API
+        run: |
+          URL=$(az deployment group show -g "$AZURE_RESOURCE_GROUP" \
+            -n "drg-${{ steps.tag.outputs.value }}-apps" \
+            --query properties.outputs.apiUrl.value -o tsv)
+          echo "API: $URL"
+          for attempt in $(seq 1 20); do
+            if curl -fsS "$URL/health" > /tmp/health.json; then
+              cat /tmp/health.json; exit 0
+            fi
+            echo "  waiting for the API to come up ($attempt/20)"; sleep 15
+          done
+          echo "API did not become healthy in time"; exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### DRG deployment"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Environment | $ENVIRONMENT_NAME |"
+            echo "| Image tag | ${{ steps.tag.outputs.value }} |"
+            echo "| Registry | ${{ steps.infra.outputs.registry }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
