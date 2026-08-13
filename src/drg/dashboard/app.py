@@ -185,12 +185,7 @@ st.sidebar.caption("Sources: Open-Meteo / OpenWeatherMap · National Grid ESO Ca
 # ===========================================================================
 # header KPIs
 # ===========================================================================
-@st.cache_data(show_spinner=False)
-def site_series(days: int) -> pd.DataFrame:
-    return demand[demand["neighbourhood_id"] == site].sort_values("timestamp")
-
-
-site_demand = site_series(window_days)
+site_demand = demand[demand["neighbourhood_id"] == site].sort_values("timestamp")
 thresholds = load_thresholds_dict()
 threshold = thresholds[site].primary_kwh if site in thresholds else float("nan")
 flagged_hist = detect_stress(site_demand, thresholds)
@@ -219,8 +214,8 @@ if metrics_json:
 else:
     k5.metric("Forecast R²", "n/a", help="Run: python -m drg.cli train")
 
-tab_live, tab_stress, tab_scenario, tab_sens = st.tabs(
-    ["Live & forecast", "Stress profile", "Scenario studio", "Sensitivity"]
+tab_live, tab_stress, tab_scenario, tab_sens, tab_explain = st.tabs(
+    ["Live & forecast", "Stress profile", "Scenario studio", "Sensitivity", "Explainability"]
 )
 
 
@@ -550,3 +545,78 @@ with tab_sens:
             ].round(2),
             "Sensitivity grid",
         )
+
+
+# ===========================================================================
+# 5. explainability
+# ===========================================================================
+with tab_explain:
+    st.subheader("What drives demand and stress?")
+    shap_global = load_report("shap_global_importance.parquet")
+    shap_stress = load_report("shap_stress_importance.parquet")
+    if shap_global is None:
+        st.info("Run `python -m drg.cli explain` to generate the SHAP report.")
+    else:
+        top = shap_global.head(15).iloc[::-1]
+        fig = go.Figure(
+            go.Bar(
+                x=top["mean_abs_shap"],
+                y=top["feature"],
+                orientation="h",
+                marker={"color": SERIES[0], "line": {"color": "#fcfcfb", "width": 2}},
+                hovertemplate="%{x:.3f} mean |SHAP|<extra>%{y}</extra>",
+                name="All periods",
+            )
+        )
+        fig.update_layout(**base_layout("Global feature importance (mean |SHAP|)", height=520))
+        fig.update_xaxes(title_text="Mean absolute SHAP value (kWh)")
+        st.plotly_chart(fig, use_container_width=True)
+
+        if shap_stress is not None and len(shap_stress):
+            merged = (
+                shap_global[["feature", "contribution_pct"]]
+                .merge(
+                    shap_stress[["feature", "contribution_pct"]], on="feature", suffixes=("_all", "_stress")
+                )
+                .head(12)
+                .iloc[::-1]
+            )
+            fig = go.Figure()
+            fig.add_trace(
+                go.Bar(
+                    y=merged["feature"],
+                    x=merged["contribution_pct_all"],
+                    orientation="h",
+                    name="All periods",
+                    marker={"color": SERIES[0], "line": {"color": "#fcfcfb", "width": 2}},
+                    hovertemplate="%{x:.1f}%<extra>All periods</extra>",
+                )
+            )
+            fig.add_trace(
+                go.Bar(
+                    y=merged["feature"],
+                    x=merged["contribution_pct_stress"],
+                    orientation="h",
+                    name="Stress periods only",
+                    marker={"color": SERIES[1], "line": {"color": "#fcfcfb", "width": 2}},
+                    hovertemplate="%{x:.1f}%<extra>Stress periods</extra>",
+                )
+            )
+            fig.update_layout(
+                **base_layout(
+                    "Driver contribution: all periods vs stress periods", height=520, barmode="group"
+                )
+            )
+            fig.update_xaxes(title_text="Share of total attribution (%)")
+            st.plotly_chart(fig, use_container_width=True)
+            table_view(shap_stress.round(4), "Stress-period SHAP ranking")
+
+        figure_dir = cfg.paths.figure_dir
+        beeswarm = figure_dir / "shap_beeswarm.png"
+        if beeswarm.exists():
+            st.image(str(beeswarm), caption="SHAP beeswarm — champion model", use_container_width=True)
+
+st.caption(
+    "Statistical stress thresholds are derived from each neighbourhood's own historical "
+    "demand distribution; the framework performs no physical power-flow modelling."
+)
