@@ -1,0 +1,35 @@
+# Azure ML command job: runs the full DRG pipeline on the managed cluster and
+# registers the champion model.
+#
+#   az ml job create -f infra/aml/train-job.yml \
+#      --resource-group rg-drg-dev --workspace-name mlw-drg-dev
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+display_name: drg-full-pipeline
+experiment_name: dynamic-resilient-grid
+description: >
+  Ingest smart-meter + public context data, engineer features, train the model
+  ladder (linear / XGBoost / neural), detect statistical stress, run the
+  electrification sensitivity grid and produce SHAP explanations.
+
+code: ../../
+command: >-
+  pip install --no-deps -e . &&
+  python pipelines/run_azureml.py
+    --config configs/config.yaml
+    --output-dir ${{outputs.artifacts}}
+    --register-model
+
+environment: azureml:drg-training-env@latest
+compute: azureml:cpu-cluster
+
+environment_variables:
+  DRG_LOG_LEVEL: INFO
+  MPLBACKEND: Agg
+
+outputs:
+  artifacts:
+    type: uri_folder
+    mode: rw_mount
+
+resources:
+  instance_count: 1
