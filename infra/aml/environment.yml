@@ -1,0 +1,8 @@
+# Azure ML environment for the DRG training job.
+$schema: https://azuremlschemas.azureedge.net/latest/environment.schema.json
+name: drg-training-env
+version: "1"
+description: Dynamic Resilient Grid training environment (scikit-learn, XGBoost, SHAP, PyTorch CPU)
+build:
+  path: ../../
+  dockerfile_path: docker/Dockerfile.pipeline
