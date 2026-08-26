@@ -1,0 +1,8 @@
+# Managed online endpoint serving the champion forecaster.
+#
+#   az ml online-endpoint create -f infra/aml/endpoint.yml
+#   az ml online-deployment create -f infra/aml/deployment.yml --all-traffic
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineEndpoint.schema.json
+name: drg-forecast
+auth_mode: key
+description: Half-hourly neighbourhood demand forecast with statistical stress alerting.
