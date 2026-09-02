@@ -1,0 +1,968 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DRG - Business Requirements Document</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm 18mm 18mm; }
+  @page :first { margin: 0; }
+
+  :root {
+    --blue:#2a78d6; --orange:#eb6834; --aqua:#1baf7a; --yellow:#eda100;
+    --violet:#4a3aa7; --red:#d03b3b; --green:#0ca30c;
+    --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --surface:#fcfcfb;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 10.2pt; line-height: 1.5; color: var(--ink);
+    margin: 0; counter-reset: sec fig tbl;
+  }
+
+  .cover {
+    height: 297mm; padding: 36mm 24mm 20mm 24mm; break-after: page;
+    background: linear-gradient(160deg, #fbf7f4 0%, #f6efe9 55%, #f1e8e0 100%);
+    display: flex; flex-direction: column;
+  }
+  .cover .rule { height: 6px; width: 96px; background: var(--orange); margin-bottom: 22mm; }
+  .cover .eyebrow { font-size: 10pt; letter-spacing: .16em; text-transform: uppercase;
+                    color: var(--orange); font-weight: 600; margin-bottom: 6mm; }
+  .cover h1 { font-size: 30pt; line-height: 1.15; margin: 0 0 6mm 0; font-weight: 650; letter-spacing: -.4px; }
+  .cover h2 { font-size: 14.5pt; font-weight: 400; color: var(--ink2); margin: 0 0 16mm 0; line-height: 1.4; }
+  .cover .spacer { flex: 1; }
+  .cover .meta { border-top: 1px solid var(--grid); padding-top: 6mm; font-size: 9.6pt; color: var(--ink2); }
+  .cover .meta table { width: 100%; border-collapse: collapse; }
+  .cover .meta td { padding: 1.6mm 0; vertical-align: top; }
+  .cover .meta td:first-child { width: 34mm; color: var(--muted); }
+
+  h2.sec {
+    counter-increment: sec; counter-reset: sub fig tbl;
+    font-size: 15pt; margin: 9mm 0 3mm 0; padding-bottom: 2mm;
+    border-bottom: 2px solid var(--orange); break-after: avoid; break-inside: avoid;
+  }
+  h2.sec::before { content: counter(sec) ". "; color: var(--orange); }
+  h3 { counter-increment: sub; font-size: 11.6pt; margin: 6mm 0 2mm 0; break-after: avoid; }
+  h3::before { content: counter(sec) "." counter(sub) "  "; color: var(--orange); font-weight: 600; }
+  p { margin: 0 0 2.6mm 0; text-align: justify; hyphens: auto; }
+  ul, ol { margin: 0 0 3mm 0; padding-left: 5.5mm; }
+  li { margin-bottom: 1.2mm; }
+  code { font-family: Consolas, monospace; font-size: 9pt; background: #f1f3f6;
+         padding: .3mm 1.1mm; border-radius: 2px; }
+  strong { font-weight: 650; }
+
+  table.t { width: 100%; border-collapse: collapse; margin: 3mm 0 4mm 0;
+            font-size: 9.2pt; break-inside: avoid; }
+  table.t caption { caption-side: top; text-align: left; font-size: 9pt; color: var(--ink2);
+                    padding-bottom: 1.6mm; counter-increment: tbl; }
+  table.t caption::before { content: "Table " counter(sec) "." counter(tbl) " - "; color: var(--orange); font-weight: 600; }
+  table.t th { background: #fdf1ea; text-align: left; font-weight: 600;
+               border-bottom: 1.5px solid var(--orange); padding: 1.8mm 2mm; }
+  table.t td { border-bottom: 1px solid var(--grid); padding: 1.6mm 2mm; vertical-align: top; }
+  table.t tr:nth-child(even) td { background: #fafbfc; }
+  table.t td.c, table.t th.c { text-align: center; }
+  .id { font-family: Consolas, monospace; font-size: 8.6pt; white-space: nowrap;
+        color: var(--violet); font-weight: 600; }
+  .pri-m { color: var(--red); font-weight: 650; }
+  .pri-s { color: var(--orange); font-weight: 650; }
+  .pri-c { color: var(--ink2); font-weight: 600; }
+
+  .note, .warn, .ok {
+    border-left: 3px solid var(--blue); background: #f4f8fd; padding: 2.6mm 3.4mm;
+    margin: 3mm 0; font-size: 9.4pt; break-inside: avoid; border-radius: 0 3px 3px 0;
+  }
+  .warn { border-left-color: var(--orange); background: #fdf4ef; }
+  .ok   { border-left-color: var(--aqua);   background: #f0faf6; }
+  .note b, .warn b, .ok b { display: block; margin-bottom: 1mm; }
+
+  figure { margin: 4mm 0 5mm 0; break-inside: avoid; text-align: center; }
+  figure svg { max-width: 100%; height: auto; }
+  figcaption { counter-increment: fig; font-size: 8.8pt; color: var(--ink2);
+               margin-top: 2mm; text-align: center; }
+  figcaption::before { content: "Figure " counter(sec) "." counter(fig) " - "; color: var(--orange); font-weight: 600; }
+  .pagebreak { break-before: page; }
+  .lede { font-size: 10.8pt; color: var(--ink2); border-left: 3px solid var(--orange);
+          padding-left: 4mm; margin: 0 0 5mm 0; }
+
+  .kpi { display: flex; gap: 3mm; margin: 4mm 0; break-inside: avoid; }
+  .kpi div { flex: 1; border: 1px solid var(--grid); border-top: 3px solid var(--orange);
+             border-radius: 3px; padding: 3mm; text-align: center; background: var(--surface); }
+  .kpi .v { font-size: 17pt; font-weight: 680; color: var(--ink); display: block; line-height: 1.2; }
+  .kpi .l { font-size: 8.4pt; color: var(--ink2); display: block; margin-top: 1mm; }
+  .toc { font-size: 9.6pt; }
+  .toc .l1 { margin: 1.8mm 0 0 0; font-weight: 600; }
+  .toc .l2 { margin: .6mm 0 0 7mm; color: var(--ink2); }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="rule"></div>
+  <div class="eyebrow">Business Requirements Document</div>
+  <h1>Dynamic Resilient Grid (DRG)</h1>
+  <h2>Quantifying electrification stress on UK urban<br>low-voltage electricity networks</h2>
+
+  <svg width="330" height="120" viewBox="0 0 330 120" aria-hidden="true">
+    <rect x="0" y="86" width="330" height="1.4" fill="#c3c2b7"/>
+    <g font-family="Segoe UI" font-size="9" fill="#52514e" text-anchor="middle">
+      <rect x="6"   y="52" width="46" height="34" rx="3" fill="#2a78d6" opacity=".85"/>
+      <text x="29" y="100">today</text>
+      <rect x="76"  y="38" width="46" height="48" rx="3" fill="#2a78d6" opacity=".7"/>
+      <text x="99" y="100">EV 20%</text>
+      <rect x="146" y="20" width="46" height="66" rx="3" fill="#eb6834" opacity=".8"/>
+      <text x="169" y="100">EV 40%</text>
+      <rect x="216" y="8"  width="46" height="78" rx="3" fill="#eb6834"/>
+      <text x="239" y="100">EV 60%</text>
+      <rect x="286" y="0"  width="40" height="86" rx="3" fill="#d03b3b"/>
+      <text x="306" y="100">EV 80%</text>
+    </g>
+    <line x1="0" y1="60" x2="330" y2="60" stroke="#d03b3b" stroke-width="1.4" stroke-dasharray="5 4"/>
+    <text x="4" y="56" font-family="Segoe UI" font-size="8.5" fill="#d03b3b">historical demand envelope (P95)</text>
+  </svg>
+
+  <div class="spacer"></div>
+  <div class="meta">
+    <table>
+      <tr><td>Document</td><td><strong>DRG-BRD-001</strong> &nbsp; Business Requirements Document</td></tr>
+      <tr><td>Version</td><td>1.0 (Baseline)</td></tr>
+      <tr><td>Status</td><td>Issued for approval</td></tr>
+      <tr><td>Date</td><td>28 August 2026</td></tr>
+      <tr><td>Classification</td><td>Internal - contains no personal or licensed smart-meter data</td></tr>
+      <tr><td>Companion</td><td>DRG-SAD-001 Architecture &amp; Design Document</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ============ DOC CONTROL ============ -->
+<h2 class="sec">Document Control</h2>
+
+<table class="t">
+  <caption>Revision history</caption>
+  <thead><tr><th style="width:16mm">Version</th><th style="width:24mm">Date</th><th>Description</th><th style="width:32mm">Author</th></tr></thead>
+  <tbody>
+    <tr><td>0.1</td><td>2026-08-18</td><td>Problem statement, business context and stakeholder analysis</td><td>Business Analyst</td></tr>
+    <tr><td>0.2</td><td>2026-08-22</td><td>Business and functional requirements catalogued; as-is process mapped</td><td>Business Analyst</td></tr>
+    <tr><td>0.3</td><td>2026-08-26</td><td>Acceptance criteria and traceability matrix added</td><td>Business Analyst</td></tr>
+    <tr><td>1.0</td><td>2026-08-28</td><td>Benefits quantified against measured pilot results; baselined for approval</td><td>Business Analyst</td></tr>
+  </tbody>
+</table>
+
+<table class="t">
+  <caption>Approval</caption>
+  <thead><tr><th style="width:46mm">Role</th><th>Approval covers</th><th style="width:24mm">Date</th><th style="width:24mm">Signature</th></tr></thead>
+  <tbody>
+    <tr><td>Project Sponsor</td><td>Business case, benefits and funding</td><td></td><td></td></tr>
+    <tr><td>Network Planning Lead (DNO)</td><td>Business requirements and acceptance criteria</td><td></td><td></td></tr>
+    <tr><td>Head of Data &amp; Analytics</td><td>Data requirements and analytical approach</td><td></td><td></td></tr>
+    <tr><td>Data Protection Officer</td><td>Data governance and licence compliance</td><td></td><td></td></tr>
+    <tr><td>Academic Supervisor</td><td>Alignment with the approved project proposal</td><td></td><td></td></tr>
+  </tbody>
+</table>
+
+<div class="pagebreak"></div>
+<h2 class="sec">Contents</h2>
+<div class="toc">
+  <div class="l1">1 &nbsp; Executive Summary</div>
+  <div class="l1">2 &nbsp; Business Context and Problem Statement</div>
+  <div class="l2">2.1 Market and regulatory drivers &nbsp;&middot;&nbsp; 2.2 The problem &nbsp;&middot;&nbsp; 2.3 Cost of inaction</div>
+  <div class="l1">3 &nbsp; Business Objectives and Success Criteria</div>
+  <div class="l1">4 &nbsp; Scope</div>
+  <div class="l2">4.1 In scope &nbsp;&middot;&nbsp; 4.2 Out of scope &nbsp;&middot;&nbsp; 4.3 Future phases</div>
+  <div class="l1">5 &nbsp; Stakeholder Analysis</div>
+  <div class="l2">5.1 Register &nbsp;&middot;&nbsp; 5.2 Influence and interest &nbsp;&middot;&nbsp; 5.3 RACI</div>
+  <div class="l1">6 &nbsp; Business Process: As-Is and To-Be</div>
+  <div class="l1">7 &nbsp; Business Requirements</div>
+  <div class="l1">8 &nbsp; Functional Requirements</div>
+  <div class="l1">9 &nbsp; Non-Functional Requirements</div>
+  <div class="l1">10 &nbsp; Data Requirements</div>
+  <div class="l1">11 &nbsp; Assumptions, Constraints and Dependencies</div>
+  <div class="l1">12 &nbsp; Risks and Mitigations</div>
+  <div class="l1">13 &nbsp; Acceptance Criteria and Validation</div>
+  <div class="l1">14 &nbsp; Benefits and Business Impact</div>
+  <div class="l1">15 &nbsp; Glossary</div>
+  <div class="l1">Appendix A &nbsp; Requirements Traceability Matrix</div>
+</div>
+
+<!-- ============ 1. EXEC SUMMARY ============ -->
+<div class="pagebreak"></div>
+<h2 class="sec">Executive Summary</h2>
+
+<p class="lede">UK urban low-voltage networks were dimensioned for a domestic load profile that
+electrification is now changing faster than the assets serving it. This document sets out the
+business requirements for the Dynamic Resilient Grid (DRG): a demand-side analytics capability that
+tells a network planner <em>which</em> neighbourhoods are approaching their historical demand
+envelope, <em>how often and for how long</em> they exceed it, and <em>how much worse</em> electric
+vehicle and heat-pump adoption will make it.</p>
+
+<h3>The business problem in one paragraph</h3>
+<p>Distribution planners today rely on historical averages and diversified design figures. These are
+adequate for steady-state planning but silent on the questions electrification actually raises. A
+planner can say what average demand was last winter; they cannot say how many hours per week a given
+street will sit above its historical peak envelope once forty per cent of its households charge an
+electric vehicle. The consequence is reinforcement that is either premature - capital spent early on
+assets that were not yet constrained - or late, which is worse, because lead times for distribution
+reinforcement are measured in years.</p>
+
+<h3>The proposed capability</h3>
+<p>DRG forecasts half-hourly neighbourhood demand from smart-meter data, defines a stress threshold
+statistically from each neighbourhood's own history, simulates electric-vehicle and heat-pump
+adoption from the bottom up, and reports the resulting change in peak demand, stress frequency and
+stress duration. It explains its own outputs, replays history as a live feed to demonstrate
+operational use, and exposes everything through a dashboard and an API.</p>
+
+<h3>Evidence from the pilot implementation</h3>
+<p>A working implementation has been built and run end to end. The figures below are measured
+outputs, not projections. They were produced on a calibrated reference dataset rather than the
+licensed extract, so absolute values will differ in production; the capability they demonstrate does
+not.</p>
+
+<div class="kpi">
+  <div><span class="v">3.4%</span><span class="l">forecast error (MAPE), against 7.7% for the current practice benchmark</span></div>
+  <div><span class="v">10.6&#215;</span><span class="l">increase in stress frequency at 80% EV and 70% heat-pump adoption</span></div>
+  <div><span class="v">+237%</span><span class="l">peak amplification in the same worst-case scenario</span></div>
+  <div><span class="v">145s</span><span class="l">to run the complete analysis end to end</span></div>
+</div>
+
+<h3>What is being asked for</h3>
+<p>Approval of the business requirements in Section 7, the acceptance criteria in Section 13, and the
+resourcing implied by the scope in Section 4. The technical design that satisfies these requirements
+is documented separately in DRG-SAD-001.</p>
+
+<div class="warn"><b>One boundary the sponsor must understand before approving</b>
+DRG is a <strong>demand-side statistical</strong> capability. It has no network topology, no
+transformer or cable ratings and no voltage model, because the available smart-meter data contains
+none of these. It identifies where and when to look, and quantifies how much electrification
+worsens the picture. It does not, and cannot, replace an engineering assessment of a specific asset.
+Any business case built on its outputs must respect that boundary.</div>
+
+<!-- ============ 2. CONTEXT ============ -->
+<h2 class="sec">Business Context and Problem Statement</h2>
+
+<h3>Market and regulatory drivers</h3>
+<table class="t">
+  <caption>Drivers creating the need</caption>
+  <thead><tr><th style="width:44mm">Driver</th><th>Implication for local distribution networks</th></tr></thead>
+  <tbody>
+    <tr><td>Net Zero commitments</td><td>Transport and heat are being electrified simultaneously, moving load onto networks that were sized before either was contemplated.</td></tr>
+    <tr><td>Electric vehicle adoption</td><td>A 7 kW domestic charger is roughly five times the after-diversity demand of the household it is attached to, and it typically switches on in the evening, when the network is already at its busiest.</td></tr>
+    <tr><td>Heat pump deployment</td><td>Electrified heating is weather-driven: it peaks precisely on the coldest evenings, which is also when the underlying domestic peak is highest.</td></tr>
+    <tr><td>Smart-meter rollout</td><td>Half-hourly consumption data now exists at scale, making a demand-side analytical approach possible for the first time without new network instrumentation.</td></tr>
+    <tr><td>Regulatory efficiency pressure</td><td>Price-control frameworks reward evidence-led investment. A defensible, data-driven case for the timing of reinforcement has direct regulatory value.</td></tr>
+  </tbody>
+</table>
+
+<h3>The problem</h3>
+<p>Three specific gaps exist in current practice, and each maps to a business requirement in
+Section 7.</p>
+<ol>
+  <li><strong>No local, temporal view of exceedance.</strong> Planners know average and peak demand.
+      They do not know the <em>frequency</em> and <em>duration</em> with which a specific
+      neighbourhood exceeds its own historical envelope, which is the quantity that determines
+      whether a constraint is emerging or already present.</li>
+  <li><strong>No quantified link between adoption and stress.</strong> Adoption forecasts exist and
+      network capacity is known in aggregate, but the function connecting the two - how many
+      additional stressed hours per week does the next ten per cent of EV uptake create - is not
+      routinely computed at neighbourhood granularity.</li>
+  <li><strong>No explanation attached to the numbers.</strong> A forecast that cannot say why it
+      expects a peak is difficult to defend in an investment committee and impossible to challenge
+      constructively.</li>
+</ol>
+
+<h3>Cost of inaction</h3>
+<table class="t">
+  <caption>Consequences of continuing with current practice</caption>
+  <thead><tr><th style="width:44mm">Consequence</th><th>Business impact</th></tr></thead>
+  <tbody>
+    <tr><td>Late reinforcement</td><td>Constraints materialise before mitigation is delivered, with lead times measured in years. Customer impact and remedial cost both rise.</td></tr>
+    <tr><td>Premature reinforcement</td><td>Capital committed to assets that were not yet constrained, with a corresponding efficiency challenge under the price control.</td></tr>
+    <tr><td>Mis-targeted flexibility</td><td>Flexibility procurement aimed at the wrong hours or the wrong locations because the timing of local stress is not characterised.</td></tr>
+    <tr><td>Weak evidence base</td><td>Investment cases resting on averages rather than on quantified exceedance are harder to defend to a regulator.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 3. OBJECTIVES ============ -->
+<h2 class="sec">Business Objectives and Success Criteria</h2>
+
+<table class="t">
+  <caption>Business objectives with measurable success criteria</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:50mm">Objective</th><th>Success criterion (measurable)</th><th style="width:22mm" class="c">Status</th></tr></thead>
+  <tbody>
+    <tr><td class="id">BO-1</td><td>Establish an accurate short-term demand forecast at neighbourhood granularity</td><td>Half-hourly forecast error materially better than the seasonal-naive practice benchmark on a held-out period, and stable under rolling-origin validation.</td><td class="c">Met: 3.37% vs 7.66% MAPE</td></tr>
+    <tr><td class="id">BO-2</td><td>Make local demand stress measurable and comparable between neighbourhoods</td><td>A reproducible stress definition producing frequency, duration and intensity per site, computed without asset data.</td><td class="c">Met</td></tr>
+    <tr><td class="id">BO-3</td><td>Quantify the effect of electrification on local peak demand</td><td>Peak amplification and stress escalation reported across a full EV and heat-pump adoption grid, with parameters traceable to published planning figures.</td><td class="c">Met: 25-scenario grid</td></tr>
+    <tr><td class="id">BO-4</td><td>Provide adoption elasticity to support investment sequencing</td><td>The marginal change in peak demand per additional tranche of adoption, reported per neighbourhood.</td><td class="c">Met</td></tr>
+    <tr><td class="id">BO-5</td><td>Make model outputs explainable to a non-specialist audience</td><td>Ranked demand drivers, reported both overall and specifically during stress periods.</td><td class="c">Met</td></tr>
+    <tr><td class="id">BO-6</td><td>Demonstrate operational viability of near-real-time use</td><td>A replay of historical data as a live feed producing rolling forecasts and alerts ahead of the measurement.</td><td class="c">Met</td></tr>
+    <tr><td class="id">BO-7</td><td>Deliver a capability that is repeatable and auditable, not a one-off study</td><td>A single command reproduces every published figure; automated tests cover the analytical claims; deployment is scripted.</td><td class="c">Met: 103 tests</td></tr>
+    <tr><td class="id">BO-8</td><td>Comply fully with the data licence throughout</td><td>No raw smart-meter data committed, published or transmitted; the capability is demonstrable without it.</td><td class="c">Met</td></tr>
+  </tbody>
+</table>
+
+<div class="ok"><b>How success will be judged overall</b>
+The capability is successful if a network planner, given a neighbourhood and an adoption assumption,
+can obtain a defensible answer to "how many stressed hours per week will this street experience, and
+what drives them" in minutes rather than weeks - and can show the working to a regulator.</div>
+
+<!-- ============ 4. SCOPE ============ -->
+<h2 class="sec">Scope</h2>
+
+<h3>In scope</h3>
+<table class="t">
+  <caption>Business scope of this phase</caption>
+  <thead><tr><th style="width:16mm">Ref</th><th style="width:52mm">Capability</th><th>Business outcome delivered</th></tr></thead>
+  <tbody>
+    <tr><td class="id">BS-01</td><td>Neighbourhood demand analytics</td><td>Load curves, seasonality and peak timing evidence for each modelled neighbourhood.</td></tr>
+    <tr><td class="id">BS-02</td><td>Short-term demand forecasting</td><td>A quantified, validated forecast that outperforms current practice.</td></tr>
+    <tr><td class="id">BS-03</td><td>Statistical stress detection</td><td>Frequency, duration and intensity of exceedance per neighbourhood.</td></tr>
+    <tr><td class="id">BS-04</td><td>Electrification scenario simulation</td><td>Peak and stress impact of any EV / heat-pump adoption combination.</td></tr>
+    <tr><td class="id">BS-05</td><td>Sensitivity and elasticity analysis</td><td>The marginal effect of each additional tranche of adoption, for investment sequencing.</td></tr>
+    <tr><td class="id">BS-06</td><td>Explainability</td><td>Ranked drivers of demand and of stress, suitable for an investment paper.</td></tr>
+    <tr><td class="id">BS-07</td><td>Decision-support interfaces</td><td>An interactive dashboard for planners and an API for integration.</td></tr>
+    <tr><td class="id">BS-08</td><td>Near-real-time demonstration</td><td>Evidence that the approach would work operationally on a live feed.</td></tr>
+    <tr><td class="id">BS-09</td><td>Deployable, repeatable delivery</td><td>Scripted cloud deployment, scheduled refresh and controlled model updates.</td></tr>
+  </tbody>
+</table>
+
+<h3>Out of scope</h3>
+<table class="t">
+  <caption>Explicit exclusions</caption>
+  <thead><tr><th style="width:16mm">Ref</th><th style="width:52mm">Excluded</th><th>Business rationale</th></tr></thead>
+  <tbody>
+    <tr><td class="id">BX-01</td><td>Engineering assessment of specific assets</td><td>Requires transformer and cable ratings and network topology, which the available data does not contain. DRG informs such assessments; it does not perform them.</td></tr>
+    <tr><td class="id">BX-02</td><td>Automated reinforcement recommendations</td><td>Follows directly from BX-01. Investment decisions remain with the planning function.</td></tr>
+    <tr><td class="id">BX-03</td><td>Real-time network control</td><td>DRG is advisory. It has no interface to operational technology and makes no switching decisions.</td></tr>
+    <tr><td class="id">BX-04</td><td>Smart-tariff and managed-charging optimisation</td><td>Deliberately excluded so this phase characterises the <em>uncontrolled</em> case, which is the appropriate planning worst case. Scheduled for a later phase.</td></tr>
+    <tr><td class="id">BX-05</td><td>Individual household analysis or targeting</td><td>Prohibited by the data licence and unnecessary for the business purpose.</td></tr>
+    <tr><td class="id">BX-06</td><td>Generation, storage and export</td><td>The source data measures import only.</td></tr>
+    <tr><td class="id">BX-07</td><td>Integration with asset management or GIS systems</td><td>Deferred; the API exists to make such integration straightforward when the need is confirmed.</td></tr>
+  </tbody>
+</table>
+
+<h3>Candidate future phases</h3>
+<table class="t">
+  <caption>Deferred capabilities and their business value</caption>
+  <thead><tr><th style="width:16mm">Ref</th><th style="width:52mm">Capability</th><th>Value if delivered</th></tr></thead>
+  <tbody>
+    <tr><td class="id">BF-01</td><td>Managed and smart-tariff charging scenarios</td><td>Quantifies how much of the modelled peak increase flexibility can remove - directly informs whether to reinforce or to procure flexibility.</td></tr>
+    <tr><td class="id">BF-02</td><td>Probabilistic forecasts with uncertainty bands</td><td>Stress is a tail phenomenon; a predictive distribution supports risk-based rather than point-based decisions.</td></tr>
+    <tr><td class="id">BF-03</td><td>Feeder-level mapping where identifiers exist</td><td>Converts a statistical signal into an asset-addressable one, closing the gap to BX-01.</td></tr>
+    <tr><td class="id">BF-04</td><td>Solar PV and battery modelling</td><td>Completes the local energy balance and captures reverse-flow constraints.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 5. STAKEHOLDERS ============ -->
+<div class="pagebreak"></div>
+<h2 class="sec">Stakeholder Analysis</h2>
+
+<h3>Stakeholder register</h3>
+<table class="t">
+  <caption>Stakeholders, needs and success measures</caption>
+  <thead><tr><th style="width:40mm">Stakeholder</th><th style="width:52mm">Need</th><th>What success looks like to them</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Network Planner</strong><br><span style="color:var(--muted);font-size:8.6pt">Primary user</span></td><td>To know which neighbourhoods are approaching their limit and how electrification changes that</td><td>A ranked view of stressed neighbourhoods with the hours, durations and drivers behind the ranking.</td></tr>
+    <tr><td><strong>Head of Asset Investment</strong><br><span style="color:var(--muted);font-size:8.6pt">Decision maker</span></td><td>Evidence for the timing and sequencing of reinforcement</td><td>An adoption elasticity curve that shows when a constraint becomes material.</td></tr>
+    <tr><td><strong>Flexibility Manager</strong></td><td>To target flexibility procurement at the right hours and locations</td><td>Stress concentrated to specific half-hours and sites, quantified.</td></tr>
+    <tr><td><strong>Policy &amp; Strategy Analyst</strong></td><td>The marginal effect of adoption policy on local networks</td><td>Elasticity expressed per ten percentage points of adoption.</td></tr>
+    <tr><td><strong>Urban Energy Researcher</strong></td><td>A reproducible, inspectable method</td><td>Published parameters, an auditable run report and a repository that runs without the licensed data.</td></tr>
+    <tr><td><strong>Data Engineer</strong><br><span style="color:var(--muted);font-size:8.6pt">Operator</span></td><td>Reliable ingestion within available hardware</td><td>The pipeline runs unattended and reports data quality clearly.</td></tr>
+    <tr><td><strong>ML Engineer</strong><br><span style="color:var(--muted);font-size:8.6pt">Operator</span></td><td>Safe retraining and release</td><td>A model cannot reach production without passing a documented quality gate.</td></tr>
+    <tr><td><strong>Data Protection Officer</strong><br><span style="color:var(--muted);font-size:8.6pt">Assurance</span></td><td>Demonstrable licence compliance</td><td>No raw data leaves its custody; no output is attributable to a household.</td></tr>
+    <tr><td><strong>Project Sponsor</strong></td><td>Delivery of the stated benefits within scope</td><td>Objectives in Section 3 evidenced against acceptance criteria in Section 13.</td></tr>
+  </tbody>
+</table>
+
+<h3>Influence and interest</h3>
+
+<figure>
+<svg width="720" height="330" viewBox="0 0 720 330" role="img"
+     aria-label="Stakeholder influence and interest grid">
+  <style>
+    .ax { stroke:#898781; stroke-width:1.3; }
+    .qd { font-size:9.4; fill:#898781; font-weight:600; }
+    .sk { font-size:9.4; fill:#0b0b0b; }
+    .dot{ fill:#eb6834; }
+    .dot2{ fill:#2a78d6; }
+  </style>
+  <rect x="80" y="20" width="560" height="250" fill="#fcfcfb" stroke="#e1e0d9"/>
+  <line class="ax" x1="360" y1="20" x2="360" y2="270" stroke-dasharray="4 4"/>
+  <line class="ax" x1="80" y1="145" x2="640" y2="145" stroke-dasharray="4 4"/>
+  <line class="ax" x1="80" y1="270" x2="640" y2="270"/>
+  <line class="ax" x1="80" y1="20" x2="80" y2="270"/>
+
+  <text class="qd" x="92" y="36">KEEP SATISFIED</text>
+  <text class="qd" x="372" y="36">MANAGE CLOSELY</text>
+  <text class="qd" x="92" y="262">MONITOR</text>
+  <text class="qd" x="372" y="262">KEEP INFORMED</text>
+
+  <text class="qd" x="360" y="292" text-anchor="middle" fill="#52514e">INTEREST &#8594;</text>
+  <text class="qd" x="66" y="145" text-anchor="middle" transform="rotate(-90 66 145)" fill="#52514e">INFLUENCE &#8594;</text>
+
+  <circle class="dot" cx="470" cy="52" r="5"/><text class="sk" x="480" y="56">Network Planner</text>
+  <circle class="dot" cx="470" cy="80" r="5"/><text class="sk" x="480" y="84">Head of Asset Investment</text>
+  <circle class="dot" cx="420" cy="106" r="5"/><text class="sk" x="430" y="110">Project Sponsor</text>
+  <circle class="dot2" cx="150" cy="66" r="5"/><text class="sk" x="160" y="70">Data Protection Officer</text>
+  <circle class="dot2" cx="200" cy="112" r="5"/><text class="sk" x="210" y="116">Cloud Platform Owner</text>
+  <circle class="dot2" cx="452" cy="176" r="5"/><text class="sk" x="462" y="180">Flexibility Manager</text>
+  <circle class="dot2" cx="500" cy="204" r="5"/><text class="sk" x="510" y="208">Data / ML Engineer</text>
+  <circle class="dot2" cx="416" cy="232" r="5"/><text class="sk" x="426" y="236">Policy Analyst</text>
+  <circle class="dot2" cx="180" cy="228" r="5"/><text class="sk" x="190" y="232">Energy Researcher</text>
+
+  <text class="sk" x="80" y="312" fill="#52514e">Orange: parties whose approval or adoption determines whether the</text>
+  <text class="sk" x="80" y="325" fill="#52514e">capability delivers value. Blue: parties who enable or consume it.</text>
+</svg>
+<figcaption>Stakeholder influence and interest grid, used to set engagement priority during
+delivery.</figcaption>
+</figure>
+
+<h3>RACI</h3>
+<table class="t">
+  <caption>Responsibility assignment (R responsible, A accountable, C consulted, I informed)</caption>
+  <thead><tr>
+    <th style="width:44mm">Activity</th>
+    <th class="c">Sponsor</th><th class="c">Planning Lead</th><th class="c">Data Eng.</th>
+    <th class="c">ML Eng.</th><th class="c">Analyst</th><th class="c">DPO</th>
+  </tr></thead>
+  <tbody>
+    <tr><td>Approve business requirements</td><td class="c">A</td><td class="c">R</td><td class="c">C</td><td class="c">C</td><td class="c">R</td><td class="c">C</td></tr>
+    <tr><td>Define the stress threshold convention</td><td class="c">I</td><td class="c">A</td><td class="c">C</td><td class="c">C</td><td class="c">R</td><td class="c">I</td></tr>
+    <tr><td>Set electrification scenario parameters</td><td class="c">I</td><td class="c">A</td><td class="c">I</td><td class="c">C</td><td class="c">R</td><td class="c">I</td></tr>
+    <tr><td>Ingest and quality-assure source data</td><td class="c">I</td><td class="c">C</td><td class="c">A/R</td><td class="c">C</td><td class="c">I</td><td class="c">C</td></tr>
+    <tr><td>Build and validate forecasting models</td><td class="c">I</td><td class="c">C</td><td class="c">C</td><td class="c">A/R</td><td class="c">C</td><td class="c">I</td></tr>
+    <tr><td>Approve a model for production use</td><td class="c">I</td><td class="c">C</td><td class="c">I</td><td class="c">A/R</td><td class="c">C</td><td class="c">I</td></tr>
+    <tr><td>Interpret results for investment decisions</td><td class="c">C</td><td class="c">A/R</td><td class="c">I</td><td class="c">C</td><td class="c">R</td><td class="c">I</td></tr>
+    <tr><td>Assure licence and data-protection compliance</td><td class="c">I</td><td class="c">C</td><td class="c">R</td><td class="c">C</td><td class="c">C</td><td class="c">A</td></tr>
+    <tr><td>Accept the delivered capability</td><td class="c">A</td><td class="c">R</td><td class="c">C</td><td class="c">C</td><td class="c">C</td><td class="c">C</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 6. PROCESS ============ -->
+<div class="pagebreak"></div>
+<h2 class="sec">Business Process: As-Is and To-Be</h2>
+
+<figure>
+<svg width="790" height="430" viewBox="0 0 790 430" role="img"
+     aria-label="As-is and to-be business process comparison">
+  <defs>
+    <marker id="pr-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#898781"/>
+    </marker>
+  </defs>
+  <style>
+    .ph { font-size:11.5; font-weight:700; }
+    .bx { rx:4; stroke-width:1.4; }
+    .bt { font-size:9.2; }
+    .bs { font-size:8.2; fill:#898781; }
+    .fl { stroke:#898781; stroke-width:1.3; fill:none; }
+    .gap{ font-size:8.6; fill:#d03b3b; }
+  </style>
+
+  <!-- AS IS -->
+  <text class="ph" x="14" y="22" fill="#898781">AS-IS &#8212; current practice</text>
+  <rect class="bx" x="14"  y="34" width="132" height="46" fill="#f4f6f9" stroke="#898781"/>
+  <text class="bt" x="80" y="54" text-anchor="middle">Extract historical</text>
+  <text class="bt" x="80" y="66" text-anchor="middle">consumption</text>
+
+  <rect class="bx" x="166" y="34" width="132" height="46" fill="#f4f6f9" stroke="#898781"/>
+  <text class="bt" x="232" y="54" text-anchor="middle">Compute averages</text>
+  <text class="bt" x="232" y="66" text-anchor="middle">and design peaks</text>
+
+  <rect class="bx" x="318" y="34" width="132" height="46" fill="#f4f6f9" stroke="#898781"/>
+  <text class="bt" x="384" y="54" text-anchor="middle">Apply standard</text>
+  <text class="bt" x="384" y="66" text-anchor="middle">diversity factors</text>
+
+  <rect class="bx" x="470" y="34" width="132" height="46" fill="#f4f6f9" stroke="#898781"/>
+  <text class="bt" x="536" y="54" text-anchor="middle">Judgement-based</text>
+  <text class="bt" x="536" y="66" text-anchor="middle">adoption uplift</text>
+
+  <rect class="bx" x="622" y="34" width="154" height="46" fill="#f4f6f9" stroke="#898781"/>
+  <text class="bt" x="699" y="54" text-anchor="middle">Reinforcement</text>
+  <text class="bt" x="699" y="66" text-anchor="middle">decision</text>
+
+  <g class="fl">
+    <line x1="146" y1="57" x2="162" y2="57" marker-end="url(#pr-ar)"/>
+    <line x1="298" y1="57" x2="314" y2="57" marker-end="url(#pr-ar)"/>
+    <line x1="450" y1="57" x2="466" y2="57" marker-end="url(#pr-ar)"/>
+    <line x1="602" y1="57" x2="618" y2="57" marker-end="url(#pr-ar)"/>
+  </g>
+
+  <text class="gap" x="14" y="100">Gaps: no exceedance frequency or duration &#183; adoption effect estimated by judgement</text>
+  <text class="gap" x="14" y="112">no explanation attached to the numbers &#183; weeks of analyst effort for each study</text>
+  <line x1="14" y1="124" x2="776" y2="124" stroke="#e1e0d9"/>
+
+  <!-- TO BE -->
+  <text class="ph" x="14" y="146" fill="#eb6834">TO-BE &#8212; with DRG</text>
+
+  <rect class="bx" x="14"  y="158" width="132" height="52" fill="#eef4fb" stroke="#2a78d6"/>
+  <text class="bt" x="80" y="178" text-anchor="middle">Automated ingest</text>
+  <text class="bs" x="80" y="190" text-anchor="middle">cleaned, quality-scored</text>
+  <text class="bs" x="80" y="202" text-anchor="middle">scheduled nightly</text>
+
+  <rect class="bx" x="166" y="158" width="132" height="52" fill="#eef4fb" stroke="#2a78d6"/>
+  <text class="bt" x="232" y="178" text-anchor="middle">Forecast demand</text>
+  <text class="bs" x="232" y="190" text-anchor="middle">validated against a</text>
+  <text class="bs" x="232" y="202" text-anchor="middle">practice benchmark</text>
+
+  <rect class="bx" x="318" y="158" width="132" height="52" fill="#e8f6f1" stroke="#1baf7a"/>
+  <text class="bt" x="384" y="178" text-anchor="middle">Detect stress</text>
+  <text class="bs" x="384" y="190" text-anchor="middle">frequency, duration,</text>
+  <text class="bs" x="384" y="202" text-anchor="middle">intensity per site</text>
+
+  <rect class="bx" x="470" y="158" width="132" height="52" fill="#e8f6f1" stroke="#1baf7a"/>
+  <text class="bt" x="536" y="178" text-anchor="middle">Simulate adoption</text>
+  <text class="bs" x="536" y="190" text-anchor="middle">bottom-up EV and</text>
+  <text class="bs" x="536" y="202" text-anchor="middle">heat pump, 25 scenarios</text>
+
+  <rect class="bx" x="622" y="158" width="154" height="52" fill="#eef4fb" stroke="#2a78d6"/>
+  <text class="bt" x="699" y="178" text-anchor="middle">Evidence-led</text>
+  <text class="bs" x="699" y="190" text-anchor="middle">reinforcement and</text>
+  <text class="bs" x="699" y="202" text-anchor="middle">flexibility decision</text>
+
+  <g class="fl">
+    <line x1="146" y1="184" x2="162" y2="184" marker-end="url(#pr-ar)"/>
+    <line x1="298" y1="184" x2="314" y2="184" marker-end="url(#pr-ar)"/>
+    <line x1="450" y1="184" x2="466" y2="184" marker-end="url(#pr-ar)"/>
+    <line x1="602" y1="184" x2="618" y2="184" marker-end="url(#pr-ar)"/>
+  </g>
+
+  <!-- supporting row -->
+  <rect class="bx" x="166" y="238" width="284" height="44" fill="#fdf4ef" stroke="#eb6834"/>
+  <text class="bt" x="308" y="256" text-anchor="middle">Explainability: ranked drivers of stress</text>
+  <text class="bs" x="308" y="272" text-anchor="middle">makes the case defensible under challenge</text>
+
+  <rect class="bx" x="470" y="238" width="306" height="44" fill="#fdf4ef" stroke="#eb6834"/>
+  <text class="bt" x="623" y="256" text-anchor="middle">Elasticity: peak increase per 10 pp of adoption</text>
+  <text class="bs" x="623" y="272" text-anchor="middle">supports sequencing and timing of investment</text>
+
+  <g class="fl">
+    <line x1="384" y1="210" x2="330" y2="234" marker-end="url(#pr-ar)"/>
+    <line x1="536" y1="210" x2="590" y2="234" marker-end="url(#pr-ar)"/>
+    <line x1="380" y1="282" x2="660" y2="290"/>
+    <line x1="660" y1="290" x2="699" y2="214" marker-end="url(#pr-ar)"/>
+  </g>
+
+  <line x1="14" y1="310" x2="776" y2="310" stroke="#e1e0d9"/>
+  <text class="bt" x="14" y="330" font-weight="700">What changes for the business</text>
+  <text class="bs" x="14" y="346" font-size="9">The judgement step in the middle of the as-is process is replaced by a quantified, reproducible</text>
+  <text class="bs" x="14" y="359" font-size="9">simulation, and two new outputs are added: exceedance statistics that did not previously exist,</text>
+  <text class="bs" x="14" y="372" font-size="9">and an explanation that makes the numbers defensible.</text>
+  <text class="bs" x="14" y="392" font-size="9">Analyst effort per study falls from weeks to minutes and, more importantly, the study becomes</text>
+  <text class="bs" x="14" y="405" font-size="9">repeatable: it can be re-run whenever adoption assumptions change rather than commissioned afresh.</text>
+</svg>
+<figcaption>As-is and to-be process comparison. Green steps are new analytical capability; orange
+steps are new decision-support outputs with no as-is equivalent.</figcaption>
+</figure>
+
+<!-- ============ 7. BUSINESS REQUIREMENTS ============ -->
+<div class="pagebreak"></div>
+<h2 class="sec">Business Requirements</h2>
+
+<p>Business requirements state <em>what the business needs</em>, independently of how it is built.
+Priority uses MoSCoW: <span class="pri-m">M</span> must have, <span class="pri-s">S</span> should
+have, <span class="pri-c">C</span> could have. Each requirement traces to a business objective and
+forward to functional requirements in Section 8; the full trace is in Appendix A.</p>
+
+<table class="t">
+  <caption>Business requirements</caption>
+  <thead><tr>
+    <th style="width:14mm">Ref</th><th>Requirement</th>
+    <th style="width:12mm" class="c">Pri</th><th style="width:16mm" class="c">Objective</th>
+  </tr></thead>
+  <tbody>
+    <tr><td class="id">BR-01</td><td>The business must be able to see half-hourly electricity demand for each modelled neighbourhood over the full historical period, with data quality issues identified rather than hidden.</td><td class="c pri-m">M</td><td class="c">BO-1</td></tr>
+    <tr><td class="id">BR-02</td><td>The business must be able to forecast neighbourhood demand for the next half-hour with an accuracy that is demonstrably better than current practice, and must be able to see the comparison.</td><td class="c pri-m">M</td><td class="c">BO-1</td></tr>
+    <tr><td class="id">BR-03</td><td>The business must have a consistent, reproducible definition of when a neighbourhood is under demand stress that does not depend on asset data it does not hold.</td><td class="c pri-m">M</td><td class="c">BO-2</td></tr>
+    <tr><td class="id">BR-04</td><td>The business must be able to quantify, per neighbourhood, how often stress occurs, how long each episode lasts and how far demand exceeds the threshold.</td><td class="c pri-m">M</td><td class="c">BO-2</td></tr>
+    <tr><td class="id">BR-05</td><td>The business must be able to model the effect of any chosen level of electric-vehicle adoption on local peak demand and stress.</td><td class="c pri-m">M</td><td class="c">BO-3</td></tr>
+    <tr><td class="id">BR-06</td><td>The business must be able to model the effect of any chosen level of heat-pump adoption, including its dependence on weather.</td><td class="c pri-m">M</td><td class="c">BO-3</td></tr>
+    <tr><td class="id">BR-07</td><td>The business must be able to compare electrification scenarios against an unchanged baseline on a like-for-like basis.</td><td class="c pri-m">M</td><td class="c">BO-3</td></tr>
+    <tr><td class="id">BR-08</td><td>The business must be able to see the marginal effect of each additional tranche of adoption, to sequence investment rather than merely identify it.</td><td class="c pri-s">S</td><td class="c">BO-4</td></tr>
+    <tr><td class="id">BR-09</td><td>The business must be able to explain which factors drive demand, and separately which drive stress periods, in terms a non-specialist can follow.</td><td class="c pri-m">M</td><td class="c">BO-5</td></tr>
+    <tr><td class="id">BR-10</td><td>The business should be able to see current external conditions (temperature and grid carbon intensity) alongside the analysis, for situational context.</td><td class="c pri-s">S</td><td class="c">BO-6</td></tr>
+    <tr><td class="id">BR-11</td><td>The business should be able to observe the system operating against a simulated live feed, including alerts raised before demand actually breaches the threshold.</td><td class="c pri-s">S</td><td class="c">BO-6</td></tr>
+    <tr><td class="id">BR-12</td><td>The business must be able to reach these outputs through an interface appropriate to a planner, without writing code.</td><td class="c pri-m">M</td><td class="c">BO-7</td></tr>
+    <tr><td class="id">BR-13</td><td>The business should be able to consume these outputs programmatically, so results can be integrated with other systems later.</td><td class="c pri-s">S</td><td class="c">BO-7</td></tr>
+    <tr><td class="id">BR-14</td><td>The business must be able to reproduce any published figure from the underlying data on demand.</td><td class="c pri-m">M</td><td class="c">BO-7</td></tr>
+    <tr><td class="id">BR-15</td><td>The business must be assured that the analysis complies with the data licence and that no household-level information is exposed.</td><td class="c pri-m">M</td><td class="c">BO-8</td></tr>
+    <tr><td class="id">BR-16</td><td>The business must be assured that an updated model cannot silently replace a better-performing one in production.</td><td class="c pri-m">M</td><td class="c">BO-7</td></tr>
+    <tr><td class="id">BR-17</td><td>The business should be able to refresh the analysis on a schedule without manual intervention.</td><td class="c pri-s">S</td><td class="c">BO-7</td></tr>
+    <tr><td class="id">BR-18</td><td>The business could vary equipment assumptions (charger rating, heat-pump size) to test alternative technology mixes.</td><td class="c pri-c">C</td><td class="c">BO-3</td></tr>
+  </tbody>
+</table>
+
+<div class="note"><b>Why BR-03 is worded as it is</b>
+The requirement deliberately asks for a definition that <em>does not depend on asset data</em>. An
+earlier formulation asked for stress "relative to transformer capacity", which would have been the
+more useful answer but is not obtainable from smart-meter data. Stating the constraint inside the
+requirement prevents the delivered system from being judged against a standard the available data
+cannot support.</div>
+
+<!-- ============ 8. FUNCTIONAL REQUIREMENTS ============ -->
+<h2 class="sec">Functional Requirements</h2>
+
+<p>Functional requirements state what the system must <em>do</em> to satisfy the business
+requirements above.</p>
+
+<table class="t">
+  <caption>Functional requirements: data and forecasting</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th>Requirement</th><th style="width:12mm" class="c">Pri</th><th style="width:18mm" class="c">Traces to</th></tr></thead>
+  <tbody>
+    <tr><td class="id">FR-01</td><td>Ingest the Low Carbon London half-hourly release in bounded memory, and continue to operate on hardware with 8 GB RAM.</td><td class="c pri-m">M</td><td class="c">BR-01</td></tr>
+    <tr><td class="id">FR-02</td><td>Clean the data: regularise the half-hourly grid, repair short gaps, treat outliers robustly, and exclude days with insufficient coverage.</td><td class="c pri-m">M</td><td class="c">BR-01</td></tr>
+    <tr><td class="id">FR-03</td><td>Aggregate households into fixed-size neighbourhood groups using a deterministic, reproducible assignment.</td><td class="c pri-m">M</td><td class="c">BR-01, BR-15</td></tr>
+    <tr><td class="id">FR-04</td><td>Acquire observed temperature and grid carbon intensity from public sources, recording the provenance of every value.</td><td class="c pri-m">M</td><td class="c">BR-01, BR-10</td></tr>
+    <tr><td class="id">FR-05</td><td>Continue operating when an external source is unavailable, degrading to a documented, clearly labelled fallback.</td><td class="c pri-m">M</td><td class="c">BR-14</td></tr>
+    <tr><td class="id">FR-06</td><td>Derive calendar, statistical and weather features using one shared implementation for both training and live prediction.</td><td class="c pri-m">M</td><td class="c">BR-02</td></tr>
+    <tr><td class="id">FR-07</td><td>Train and evaluate multiple forecasting models, including a benchmark representing current practice, on a common held-out period.</td><td class="c pri-m">M</td><td class="c">BR-02</td></tr>
+    <tr><td class="id">FR-08</td><td>Report forecast accuracy overall, restricted to the evening peak, and as stress-alarm precision and recall.</td><td class="c pri-m">M</td><td class="c">BR-02, BR-04</td></tr>
+    <tr><td class="id">FR-09</td><td>Validate the selected model with rolling-origin cross-validation to show the result is not an artefact of one test period.</td><td class="c pri-s">S</td><td class="c">BR-02, BR-14</td></tr>
+  </tbody>
+</table>
+
+<table class="t">
+  <caption>Functional requirements: stress and electrification</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th>Requirement</th><th style="width:12mm" class="c">Pri</th><th style="width:18mm" class="c">Traces to</th></tr></thead>
+  <tbody>
+    <tr><td class="id">FR-10</td><td>Compute a stress threshold per neighbourhood as the 95th percentile of its own historical demand, with mean plus two standard deviations as a sensitivity check.</td><td class="c pri-m">M</td><td class="c">BR-03</td></tr>
+    <tr><td class="id">FR-11</td><td>Hold thresholds fixed once derived from the baseline, so that scenarios are measured against an unchanging yardstick.</td><td class="c pri-m">M</td><td class="c">BR-03, BR-07</td></tr>
+    <tr><td class="id">FR-12</td><td>Group consecutive stressed half-hours into discrete events and report count, duration, peak, exceedance and energy above threshold.</td><td class="c pri-m">M</td><td class="c">BR-04</td></tr>
+    <tr><td class="id">FR-13</td><td>Report stress by season and by time of day, so the concentration of risk is visible.</td><td class="c pri-s">S</td><td class="c">BR-04</td></tr>
+    <tr><td class="id">FR-14</td><td>Simulate EV charging at household level: a defined charger rating, an evening plug-in window, a randomised start time and session length, and a realistic charging frequency.</td><td class="c pri-m">M</td><td class="c">BR-05</td></tr>
+    <tr><td class="id">FR-15</td><td>Simulate heat-pump demand as a function of heating degrees and occupancy, capped at the unit rating.</td><td class="c pri-m">M</td><td class="c">BR-06</td></tr>
+    <tr><td class="id">FR-16</td><td>Apply technology diversity and repeat each scenario multiple times, so results carry a distribution rather than a single draw.</td><td class="c pri-s">S</td><td class="c">BR-05, BR-06</td></tr>
+    <tr><td class="id">FR-17</td><td>Report, for every scenario, the after-diversity maximum demand per adopting household and the energy per vehicle per day, so assumptions can be audited against published planning figures.</td><td class="c pri-m">M</td><td class="c">BR-05, BR-06, BR-14</td></tr>
+    <tr><td class="id">FR-18</td><td>Evaluate a full grid of EV and heat-pump adoption combinations and report peak amplification and stress escalation for each.</td><td class="c pri-m">M</td><td class="c">BR-07</td></tr>
+    <tr><td class="id">FR-19</td><td>Report adoption elasticity: the marginal change in peak demand per ten percentage points of additional adoption.</td><td class="c pri-s">S</td><td class="c">BR-08</td></tr>
+    <tr><td class="id">FR-20</td><td>Allow equipment parameters to be varied without code changes.</td><td class="c pri-c">C</td><td class="c">BR-18</td></tr>
+  </tbody>
+</table>
+
+<table class="t">
+  <caption>Functional requirements: explanation, interfaces and lifecycle</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th>Requirement</th><th style="width:12mm" class="c">Pri</th><th style="width:18mm" class="c">Traces to</th></tr></thead>
+  <tbody>
+    <tr><td class="id">FR-21</td><td>Rank the drivers of forecast demand across all periods.</td><td class="c pri-m">M</td><td class="c">BR-09</td></tr>
+    <tr><td class="id">FR-22</td><td>Rank the drivers separately for stress periods only, and present the two rankings side by side.</td><td class="c pri-m">M</td><td class="c">BR-09</td></tr>
+    <tr><td class="id">FR-23</td><td>Replay historical demand as a simulated live feed with a rolling forecast at each step.</td><td class="c pri-s">S</td><td class="c">BR-11</td></tr>
+    <tr><td class="id">FR-24</td><td>Raise an alert when the <em>forecast</em> breaches the threshold before the measurement does, and distinguish it from an alert on measured demand.</td><td class="c pri-s">S</td><td class="c">BR-11</td></tr>
+    <tr><td class="id">FR-25</td><td>Classify each period into a named severity state and report remaining headroom in both absolute and percentage terms.</td><td class="c pri-s">S</td><td class="c">BR-04, BR-11</td></tr>
+    <tr><td class="id">FR-26</td><td>Provide an interactive dashboard covering live view, stress profile, scenario studio, sensitivity and explainability.</td><td class="c pri-m">M</td><td class="c">BR-12</td></tr>
+    <tr><td class="id">FR-27</td><td>Present every chart with an accompanying data table, single value axis, and status conveyed by icon and label as well as colour.</td><td class="c pri-s">S</td><td class="c">BR-12</td></tr>
+    <tr><td class="id">FR-28</td><td>Expose forecasts, stress, scenarios, sensitivity and explanations through a documented programmatic interface.</td><td class="c pri-s">S</td><td class="c">BR-13</td></tr>
+    <tr><td class="id">FR-29</td><td>Emit a single machine-readable report per run capturing data provenance, model metrics, stress statistics and scenario results.</td><td class="c pri-m">M</td><td class="c">BR-14</td></tr>
+    <tr><td class="id">FR-30</td><td>Refresh the full analysis automatically on a schedule.</td><td class="c pri-s">S</td><td class="c">BR-17</td></tr>
+    <tr><td class="id">FR-31</td><td>Prevent a retrained model from reaching production unless it passes documented quality thresholds, both absolute and relative to the model it would replace.</td><td class="c pri-m">M</td><td class="c">BR-16</td></tr>
+    <tr><td class="id">FR-32</td><td>Verify a new model against a live scoring test before it receives production traffic, and revert automatically if that test fails.</td><td class="c pri-m">M</td><td class="c">BR-16</td></tr>
+    <tr><td class="id">FR-33</td><td>Operate without any raw smart-meter data being committed, published or transmitted to a third party.</td><td class="c pri-m">M</td><td class="c">BR-15</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 9. NFRs ============ -->
+<div class="pagebreak"></div>
+<h2 class="sec">Non-Functional Requirements</h2>
+
+<table class="t">
+  <caption>Non-functional requirements with acceptance thresholds</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:26mm">Quality</th><th>Requirement</th><th style="width:32mm">Acceptance threshold</th></tr></thead>
+  <tbody>
+    <tr><td class="id">NFR-01</td><td>Performance</td><td>A complete analysis run finishes quickly enough to be re-run whenever assumptions change.</td><td>Under one hour on commodity hardware</td></tr>
+    <tr><td class="id">NFR-02</td><td>Resource</td><td>Runs on the hardware available to the analysis team.</td><td>8 GB RAM, 50 GB storage</td></tr>
+    <tr><td class="id">NFR-03</td><td>Responsiveness</td><td>Interactive scenario changes return quickly enough to support exploration.</td><td>Seconds, not minutes</td></tr>
+    <tr><td class="id">NFR-04</td><td>Accuracy</td><td>Forecast accuracy materially exceeds the current-practice benchmark.</td><td>Error at least 30% lower than seasonal naive</td></tr>
+    <tr><td class="id">NFR-05</td><td>Reproducibility</td><td>The same inputs always produce the same outputs.</td><td>Bit-identical on repeat runs</td></tr>
+    <tr><td class="id">NFR-06</td><td>Availability</td><td>No external dependency can prevent an analysis from completing.</td><td>Offline execution supported</td></tr>
+    <tr><td class="id">NFR-07</td><td>Usability</td><td>A planner can reach any headline output without technical assistance.</td><td>No more than three interactions</td></tr>
+    <tr><td class="id">NFR-08</td><td>Accessibility</td><td>Outputs remain readable in greyscale and with colour-vision deficiency.</td><td>No meaning carried by colour alone</td></tr>
+    <tr><td class="id">NFR-09</td><td>Auditability</td><td>Every published figure is traceable to a run and its parameters.</td><td>One machine-readable report per run</td></tr>
+    <tr><td class="id">NFR-10</td><td>Security</td><td>No stored credentials; least-privilege access to data.</td><td>Managed identity and federated credentials only</td></tr>
+    <tr><td class="id">NFR-11</td><td>Maintainability</td><td>The capability can be maintained by a party other than its author.</td><td>Automated tests, enforced style, documented design</td></tr>
+    <tr><td class="id">NFR-12</td><td>Cost</td><td>Cloud running cost stays proportionate to a research and planning capability.</td><td>Low hundreds of pounds per year at development scale</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 10. DATA REQUIREMENTS ============ -->
+<h2 class="sec">Data Requirements</h2>
+
+<table class="t">
+  <caption>Data sources and their business terms</caption>
+  <thead><tr><th style="width:40mm">Source</th><th style="width:30mm">Provides</th><th style="width:20mm" class="c">Licence / cost</th><th>Business note</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Low Carbon London</strong><br><span style="font-size:8.6pt;color:var(--muted)">UK Data Service study 7857</span></td><td>Half-hourly household consumption, 2011-2014</td><td class="c">Registration required; no fee</td><td>The primary asset. Licence prohibits redistribution, which shapes the whole delivery approach.</td></tr>
+    <tr><td><strong>Open-Meteo</strong></td><td>Observed and forecast temperature</td><td class="c">Free, no key</td><td>Its reanalysis archive genuinely covers the study period, so weather is observed rather than modelled.</td></tr>
+    <tr><td><strong>National Grid ESO Carbon Intensity</strong></td><td>Half-hourly carbon intensity</td><td class="c">Free, no key</td><td>Archive begins 2018, so values for the study period are a labelled projection, not measurement.</td></tr>
+    <tr><td><strong>OpenWeatherMap</strong></td><td>Live conditions</td><td class="c">Free tier sufficient</td><td>Optional. Used only for the live context panel when a key is supplied.</td></tr>
+  </tbody>
+</table>
+
+<table class="t">
+  <caption>Data quality requirements</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:34mm">Dimension</th><th>Requirement</th></tr></thead>
+  <tbody>
+    <tr><td class="id">DR-01</td><td>Completeness</td><td>Days with fewer than 80% of their half-hourly periods present are excluded from analysis rather than partially counted.</td></tr>
+    <tr><td class="id">DR-02</td><td>Validity</td><td>Implausible readings are treated by a robust statistical rule, and the number treated is reported.</td></tr>
+    <tr><td class="id">DR-03</td><td>Timeliness</td><td>Contextual data is cached and refreshed on a defined interval; stale values are never presented as current.</td></tr>
+    <tr><td class="id">DR-04</td><td>Provenance</td><td>Every derived value carries a source label distinguishing measurement, projection and synthetic substitution.</td></tr>
+    <tr><td class="id">DR-05</td><td>Privacy</td><td>No output below the neighbourhood aggregate is produced, stored or displayed.</td></tr>
+    <tr><td class="id">DR-06</td><td>Retention</td><td>Raw data remains in its original custody; processed aggregates are retained for the life of the capability.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 11. ASSUMPTIONS ============ -->
+<div class="pagebreak"></div>
+<h2 class="sec">Assumptions, Constraints and Dependencies</h2>
+
+<h3>Assumptions</h3>
+<table class="t">
+  <caption>Business assumptions and the effect if each proves false</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th>Assumption</th><th style="width:56mm">If invalid</th></tr></thead>
+  <tbody>
+    <tr><td class="id">AS-01</td><td>Fixed-size groups of households are an acceptable analytical proxy for low-voltage feeder groups.</td><td>Results remain valid per group but cannot be attributed to a specific physical asset, limiting their use in an asset-level business case.</td></tr>
+    <tr><td class="id">AS-02</td><td>Underlying consumption behaviour, absent electrification, is broadly stable over the planning horizon.</td><td>Baseline thresholds drift and the refresh cadence must increase; the scheduled retraining and its quality gate are the control for this.</td></tr>
+    <tr><td class="id">AS-03</td><td>Domestic EV charging is predominantly uncontrolled and begins in the evening.</td><td>Peak amplification is overstated. This is a deliberate planning-conservative assumption; quantifying the managed-charging alternative is deferred to BF-01.</td></tr>
+    <tr><td class="id">AS-04</td><td>Heat-pump electrical demand scales with heating degrees and saturates at the unit rating.</td><td>Winter figures shift. The relationship is a configurable parameter and can be recalibrated against field data without redevelopment.</td></tr>
+    <tr><td class="id">AS-05</td><td>The public contextual data services remain available on their current terms.</td><td>The capability continues to operate on labelled fallbacks; only the live context panel loses fidelity.</td></tr>
+    <tr><td class="id">AS-06</td><td>The organisation can obtain and retain access to the licensed dataset.</td><td>The capability still runs and can be evaluated on the calibrated reference dataset, but its outputs would not describe a real network.</td></tr>
+  </tbody>
+</table>
+
+<h3>Constraints</h3>
+<table class="t">
+  <caption>Constraints on delivery</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:34mm">Constraint</th><th>Consequence for the business</th></tr></thead>
+  <tbody>
+    <tr><td class="id">CN-01</td><td>Data licence</td><td>Raw data cannot be redistributed or published. The capability must be demonstrable without it, which shapes how it is delivered and reviewed.</td></tr>
+    <tr><td class="id">CN-02</td><td>Available hardware</td><td>Analysis must complete within 8 GB RAM, precluding approaches that load the whole dataset.</td></tr>
+    <tr><td class="id">CN-03</td><td>No asset data</td><td>Stress must be defined statistically. This is the single most important limitation on how outputs may be used.</td></tr>
+    <tr><td class="id">CN-04</td><td>Budget</td><td>Cloud design must favour scale-to-zero services over always-on infrastructure.</td></tr>
+    <tr><td class="id">CN-05</td><td>Timescale</td><td>Delivery within the academic project period, which fixes the scope in Section 4.</td></tr>
+  </tbody>
+</table>
+
+<h3>Dependencies</h3>
+<table class="t">
+  <caption>External dependencies</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:44mm">Dependency</th><th style="width:22mm" class="c">Owner</th><th>Impact if not met</th></tr></thead>
+  <tbody>
+    <tr><td class="id">DP-01</td><td>UK Data Service registration and dataset access</td><td class="c">Data Engineer</td><td>Analysis proceeds on reference data only; findings are illustrative rather than actionable.</td></tr>
+    <tr><td class="id">DP-02</td><td>Azure subscription with rights to create role assignments</td><td class="c">Cloud Platform Owner</td><td>Cloud deployment blocked; local operation unaffected.</td></tr>
+    <tr><td class="id">DP-03</td><td>Availability of planning stakeholders to validate the stress convention</td><td class="c">Planning Lead</td><td>The threshold convention remains a modelling choice rather than an agreed business standard.</td></tr>
+    <tr><td class="id">DP-04</td><td>Published UK planning reference figures for parameter validation</td><td class="c">Analyst</td><td>Scenario parameters lose their external benchmark, weakening the defensibility of results.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 12. RISKS ============ -->
+<h2 class="sec">Risks and Mitigations</h2>
+
+<table class="t">
+  <caption>Business risk register</caption>
+  <thead><tr>
+    <th style="width:12mm">Ref</th><th style="width:46mm">Risk</th>
+    <th style="width:14mm" class="c">Likeli-<br>hood</th><th style="width:14mm" class="c">Impact</th>
+    <th>Mitigation</th>
+  </tr></thead>
+  <tbody>
+    <tr><td class="id">RK-01</td><td>Outputs are read as an engineering statement about asset capability and used to justify a specific reinforcement</td><td class="c">Medium</td><td class="c pri-m">High</td><td>The limitation is stated in the aim, on the dashboard, in this document and in the design document. Acceptance criterion AC-11 tests that it is visible to a user.</td></tr>
+    <tr><td class="id">RK-02</td><td>Scenario parameters are set, deliberately or accidentally, so as to produce a desired conclusion</td><td class="c">Medium</td><td class="c pri-m">High</td><td>Parameters are configuration rather than code; defaults are justified against published figures; every scenario reports the derived per-household demand so a reviewer can audit it.</td></tr>
+    <tr><td class="id">RK-03</td><td>Licensed data access is delayed or withdrawn</td><td class="c">Medium</td><td class="c pri-s">Medium</td><td>The capability is fully operable on a calibrated reference dataset, so development and review are never blocked.</td></tr>
+    <tr><td class="id">RK-04</td><td>Model quality degrades over time as behaviour changes</td><td class="c">Medium</td><td class="c pri-s">Medium</td><td>Scheduled retraining with a quality gate that compares against the deployed model and blocks regression.</td></tr>
+    <tr><td class="id">RK-05</td><td>A public data service changes terms or is withdrawn</td><td class="c">Low</td><td class="c pri-c">Low</td><td>Multiple providers for weather; documented fallbacks throughout; no pipeline stage depends on a single service.</td></tr>
+    <tr><td class="id">RK-06</td><td>Stakeholders do not adopt the capability because outputs are not trusted</td><td class="c">Medium</td><td class="c pri-m">High</td><td>Explainability is a must-have requirement, not an optional extra; results are benchmarked against current practice so the improvement is visible.</td></tr>
+    <tr><td class="id">RK-07</td><td>A defective model reaches production and misleads a decision</td><td class="c">Low</td><td class="c pri-m">High</td><td>Automated promotion gate with absolute and relative thresholds, a live scoring test before traffic, and automatic rollback.</td></tr>
+    <tr><td class="id">RK-08</td><td>Inadvertent disclosure of licensed or personal data</td><td class="c">Low</td><td class="c pri-m">High</td><td>Raw data excluded from source control by construction; analysis operates on aggregates only; storage is private and identity-controlled.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 13. ACCEPTANCE ============ -->
+<div class="pagebreak"></div>
+<h2 class="sec">Acceptance Criteria and Validation</h2>
+
+<p>The capability is accepted when every criterion below is demonstrated. Each criterion is
+observable by a business stakeholder without reading code.</p>
+
+<table class="t">
+  <caption>Acceptance criteria</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th>Criterion</th><th style="width:20mm" class="c">Verifies</th><th style="width:24mm" class="c">Method</th></tr></thead>
+  <tbody>
+    <tr><td class="id">AC-01</td><td>A complete analysis can be produced from a single command, and finishes within the agreed time.</td><td class="c">BR-14, NFR-01</td><td class="c">Demonstration</td></tr>
+    <tr><td class="id">AC-02</td><td>The forecast error of the selected model is at least 30% lower than the seasonal-naive benchmark on the held-out period, and both figures are shown together.</td><td class="c">BR-02</td><td class="c">Report review</td></tr>
+    <tr><td class="id">AC-03</td><td>Rolling-origin validation shows the result is stable across at least five folds.</td><td class="c">BR-02</td><td class="c">Report review</td></tr>
+    <tr><td class="id">AC-04</td><td>Stress frequency, mean duration and peak-to-threshold ratio are reported for every neighbourhood.</td><td class="c">BR-03, BR-04</td><td class="c">Dashboard</td></tr>
+    <tr><td class="id">AC-05</td><td>Changing EV adoption in the interface changes peak amplification and stress frequency, and the direction of change is monotonic.</td><td class="c">BR-05, BR-07</td><td class="c">Demonstration</td></tr>
+    <tr><td class="id">AC-06</td><td>Heat-pump demand responds to temperature: a cold period produces materially more load than a mild one.</td><td class="c">BR-06</td><td class="c">Demonstration</td></tr>
+    <tr><td class="id">AC-07</td><td>Every scenario reports after-diversity maximum demand per adopting household and energy per vehicle per day, and both fall within published UK planning ranges.</td><td class="c">BR-05, BR-06</td><td class="c">Parameter audit</td></tr>
+    <tr><td class="id">AC-08</td><td>A full adoption grid is produced and the marginal effect per tranche of adoption is visible.</td><td class="c">BR-07, BR-08</td><td class="c">Dashboard</td></tr>
+    <tr><td class="id">AC-09</td><td>Demand drivers are ranked, and the ranking during stress periods is shown separately from the overall ranking.</td><td class="c">BR-09</td><td class="c">Dashboard</td></tr>
+    <tr><td class="id">AC-10</td><td>The replay demonstration raises at least one alert on a forecast before the corresponding measurement breaches the threshold.</td><td class="c">BR-11</td><td class="c">Demonstration</td></tr>
+    <tr><td class="id">AC-11</td><td>The statistical nature of the stress definition is visible to a user of the interface without consulting documentation.</td><td class="c">BR-03, RK-01</td><td class="c">Inspection</td></tr>
+    <tr><td class="id">AC-12</td><td>Live temperature and carbon intensity are displayed, and their source is identified.</td><td class="c">BR-10</td><td class="c">Dashboard</td></tr>
+    <tr><td class="id">AC-13</td><td>All headline outputs are reachable through the interface without writing code.</td><td class="c">BR-12, NFR-07</td><td class="c">Usability walkthrough</td></tr>
+    <tr><td class="id">AC-14</td><td>The same outputs are retrievable programmatically and documented.</td><td class="c">BR-13</td><td class="c">API review</td></tr>
+    <tr><td class="id">AC-15</td><td>Two consecutive runs on identical inputs produce identical outputs.</td><td class="c">BR-14, NFR-05</td><td class="c">Repeat run</td></tr>
+    <tr><td class="id">AC-16</td><td>No raw smart-meter data is present in the repository, and the capability runs without it.</td><td class="c">BR-15</td><td class="c">Inspection</td></tr>
+    <tr><td class="id">AC-17</td><td>A deliberately degraded model is demonstrably blocked from reaching production by the quality gate.</td><td class="c">BR-16</td><td class="c">Negative test</td></tr>
+    <tr><td class="id">AC-18</td><td>A failed release reverts automatically, leaving the previous model serving.</td><td class="c">BR-16</td><td class="c">Negative test</td></tr>
+    <tr><td class="id">AC-19</td><td>The analysis refreshes on schedule without manual intervention.</td><td class="c">BR-17</td><td class="c">Observation</td></tr>
+    <tr><td class="id">AC-20</td><td>Every chart is accompanied by its data, and no status is conveyed by colour alone.</td><td class="c">NFR-08</td><td class="c">Accessibility review</td></tr>
+  </tbody>
+</table>
+
+<div class="ok"><b>Status at issue of this document</b>
+Criteria AC-01 through AC-16, AC-19 and AC-20 have been demonstrated on the reference
+implementation. AC-17 and AC-18 are exercised by automated negative tests of the release pipeline;
+their end-to-end demonstration against a live cloud endpoint is pending provision of the Azure
+subscription (dependency DP-02).</div>
+
+<!-- ============ 14. BENEFITS ============ -->
+<h2 class="sec">Benefits and Business Impact</h2>
+
+<h3>Benefit summary</h3>
+<table class="t">
+  <caption>Anticipated benefits</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:44mm">Benefit</th><th style="width:20mm" class="c">Type</th><th>Basis</th></tr></thead>
+  <tbody>
+    <tr><td class="id">BN-01</td><td>Better-timed reinforcement</td><td class="c">Financial</td><td>Quantified exceedance replaces judgement in the timing decision, reducing both premature spend and late-constraint remediation.</td></tr>
+    <tr><td class="id">BN-02</td><td>Better-targeted flexibility procurement</td><td class="c">Financial</td><td>Stress is concentrated in identifiable half-hours and sites, so flexibility can be bought where it displaces a real constraint.</td></tr>
+    <tr><td class="id">BN-03</td><td>Reduced analyst effort per study</td><td class="c">Efficiency</td><td>A study that took weeks becomes a repeatable run measured in minutes, and can be refreshed whenever assumptions change.</td></tr>
+    <tr><td class="id">BN-04</td><td>Stronger regulatory evidence base</td><td class="c">Strategic</td><td>Investment cases supported by quantified, reproducible exceedance statistics and an explicit explanation of drivers.</td></tr>
+    <tr><td class="id">BN-05</td><td>Earlier visibility of emerging constraints</td><td class="c">Risk</td><td>Pre-emptive alerting on forecast rather than measured demand provides lead time.</td></tr>
+    <tr><td class="id">BN-06</td><td>Transferable method</td><td class="c">Strategic</td><td>The approach requires only smart-meter data and public context, so it extends to any area with equivalent data without new instrumentation.</td></tr>
+  </tbody>
+</table>
+
+<h3>Measured evidence from the reference implementation</h3>
+
+<table class="t">
+  <caption>Electrification impact measured across the adoption grid</caption>
+  <thead><tr>
+    <th style="width:34mm">Scenario</th><th class="c">Peak amplification</th><th class="c">Energy growth</th>
+    <th class="c">Stress frequency</th><th class="c">Escalation</th><th class="c">Mean event duration</th>
+  </tr></thead>
+  <tbody>
+    <tr><td>Base (no electrification)</td><td class="c">&#8212;</td><td class="c">&#8212;</td><td class="c">4.4%</td><td class="c">1.0&#215;</td><td class="c">2.2 h</td></tr>
+    <tr><td>EV 20%, heat pumps 15%</td><td class="c">+52%</td><td class="c">+29%</td><td class="c">20.2%</td><td class="c">4.6&#215;</td><td class="c">4.7 h</td></tr>
+    <tr><td>EV 40%, heat pumps 30%</td><td class="c">+115%</td><td class="c">+59%</td><td class="c">31.8%</td><td class="c">7.2&#215;</td><td class="c">5.5 h</td></tr>
+    <tr><td>EV 60%, heat pumps 50%</td><td class="c">+190%</td><td class="c">+93%</td><td class="c">40.2%</td><td class="c">9.1&#215;</td><td class="c">6.3 h</td></tr>
+    <tr><td><strong>EV 80%, heat pumps 70%</strong></td><td class="c"><strong>+237%</strong></td><td class="c"><strong>+126%</strong></td><td class="c"><strong>46.8%</strong></td><td class="c"><strong>10.6&#215;</strong></td><td class="c"><strong>6.9 h</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="note"><b>The finding with the clearest commercial implication</b>
+Electric vehicles alone at 80% adoption raise the peak by 154%; heat pumps alone at 70% raise it by
+113%. Together they raise it by 237% - <strong>29 percentage points less than the sum of the two</strong>.
+The loads peak at overlapping but not identical times, so treating them as additive overstates the
+combined constraint. Planning that adds separately-derived EV and heat-pump uplifts will therefore
+over-specify reinforcement.</div>
+
+<h3>Parameter credibility</h3>
+<table class="t">
+  <caption>Simulation assumptions checked against published planning practice</caption>
+  <thead><tr><th style="width:52mm">Quantity</th><th class="c" style="width:26mm">Model output</th><th>Reference range</th></tr></thead>
+  <tbody>
+    <tr><td>After-diversity maximum demand per EV</td><td class="c">1.20 kW</td><td>Consistent with UK DNO planning figures for domestic charging.</td></tr>
+    <tr><td>After-diversity maximum demand per heat pump</td><td class="c">1.30 kW</td><td>Consistent with UK DNO planning figures for domestic heat pumps.</td></tr>
+    <tr><td>Energy per vehicle per day</td><td class="c">5.3 kWh</td><td>Approximately 1,900 kWh per year, consistent with average UK car mileage at typical efficiency.</td></tr>
+  </tbody>
+</table>
+
+<p>These three quantities are reported by the system on every scenario run precisely so that a
+reviewer can perform this check independently, rather than accepting the headline figures on trust.</p>
+
+<div class="warn"><b>Caveat on the figures above</b>
+These results were produced on a calibrated reference dataset, not the licensed extract. They
+demonstrate that the capability computes what it claims to compute and that its assumptions are
+credible. They are <strong>not</strong> statements about any real London neighbourhood, and must not
+be quoted as such. Re-running the same pipeline on the licensed data is a configuration change, not
+a redevelopment.</div>
+
+<!-- ============ 15. GLOSSARY ============ -->
+<div class="pagebreak"></div>
+<h2 class="sec">Glossary</h2>
+
+<table class="t">
+  <caption>Business and technical terms used in this document</caption>
+  <thead><tr><th style="width:44mm">Term</th><th>Definition</th></tr></thead>
+  <tbody>
+    <tr><td><strong>ADMD</strong><br><span style="font-size:8.4pt;color:var(--muted)">After Diversity Maximum Demand</span></td><td>The peak electrical demand attributable to a single connected customer or device once the fact that not everyone uses power simultaneously is taken into account. The standard quantity UK distribution planners use for sizing.</td></tr>
+    <tr><td><strong>Adoption elasticity</strong></td><td>The marginal change in local peak demand produced by each additional tranche of technology uptake, expressed here per ten percentage points.</td></tr>
+    <tr><td><strong>DNO</strong></td><td>Distribution Network Operator - the licensed operator of a regional low- and medium-voltage electricity network.</td></tr>
+    <tr><td><strong>Diversity factor</strong></td><td>The reduction applied to a sum of individual peak demands to reflect that they do not all occur at the same instant.</td></tr>
+    <tr><td><strong>Half-hour period</strong></td><td>The settlement granularity of the GB electricity market; 48 periods per day.</td></tr>
+    <tr><td><strong>Heating degrees</strong></td><td>Degrees Celsius by which outside temperature falls below a reference balance point; the driver of electrified heating demand.</td></tr>
+    <tr><td><strong>Low Carbon London</strong></td><td>A smart-meter trial conducted in London, published through the UK Data Service as study 7857, providing half-hourly household consumption for 2011-2014.</td></tr>
+    <tr><td><strong>LV feeder</strong></td><td>Low-voltage circuit supplying a cluster of domestic properties from a distribution substation.</td></tr>
+    <tr><td><strong>Neighbourhood</strong></td><td>In this capability, a fixed-size group of smart-meter households used as the unit of analysis in place of a physical feeder, which the anonymised source data does not identify.</td></tr>
+    <tr><td><strong>Peak amplification</strong></td><td>The percentage increase in a neighbourhood's maximum half-hourly demand under an electrification scenario, relative to the un-electrified base case.</td></tr>
+    <tr><td><strong>Pre-emptive alert</strong></td><td>An alert raised because the <em>forecast</em> crosses the stress threshold, before measured demand has done so. The only alert type that provides lead time.</td></tr>
+    <tr><td><strong>Promotion gate</strong></td><td>The automated quality decision that determines whether a retrained model is allowed to replace the one currently in use.</td></tr>
+    <tr><td><strong>Stress escalation</strong></td><td>The multiple by which stress frequency increases under a scenario, relative to the base case.</td></tr>
+    <tr><td><strong>Stress event</strong></td><td>A contiguous run of two or more half-hours in which demand equals or exceeds the stress threshold. The unit in which duration statistics are reported.</td></tr>
+    <tr><td><strong>Stress period</strong></td><td>A single half-hour in which demand equals or exceeds the stress threshold.</td></tr>
+    <tr><td><strong>Stress threshold</strong></td><td>The 95th percentile of a neighbourhood's own historical half-hourly demand. A statistical reference point, not an asset rating.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ APPENDIX A ============ -->
+<h2 class="sec">Appendix A - Requirements Traceability Matrix</h2>
+
+<p>Every business requirement traces forward to the functional requirements that satisfy it and to
+the acceptance criteria that verify it. A requirement with no acceptance criterion cannot be signed
+off; a functional requirement with no business requirement is out of scope.</p>
+
+<table class="t">
+  <caption>Traceability: business objective &#8594; business requirement &#8594; functional requirement &#8594; acceptance criterion</caption>
+  <thead><tr>
+    <th style="width:16mm">Objective</th><th style="width:16mm">Business req.</th>
+    <th>Functional requirements</th><th style="width:30mm">Acceptance</th>
+  </tr></thead>
+  <tbody>
+    <tr><td class="c">BO-1</td><td class="id">BR-01</td><td>FR-01, FR-02, FR-03, FR-04</td><td class="c">AC-01</td></tr>
+    <tr><td class="c">BO-1</td><td class="id">BR-02</td><td>FR-06, FR-07, FR-08, FR-09</td><td class="c">AC-02, AC-03</td></tr>
+    <tr><td class="c">BO-2</td><td class="id">BR-03</td><td>FR-10, FR-11</td><td class="c">AC-04, AC-11</td></tr>
+    <tr><td class="c">BO-2</td><td class="id">BR-04</td><td>FR-08, FR-12, FR-13, FR-25</td><td class="c">AC-04</td></tr>
+    <tr><td class="c">BO-3</td><td class="id">BR-05</td><td>FR-14, FR-16, FR-17</td><td class="c">AC-05, AC-07</td></tr>
+    <tr><td class="c">BO-3</td><td class="id">BR-06</td><td>FR-15, FR-16, FR-17</td><td class="c">AC-06, AC-07</td></tr>
+    <tr><td class="c">BO-3</td><td class="id">BR-07</td><td>FR-11, FR-18</td><td class="c">AC-05, AC-08</td></tr>
+    <tr><td class="c">BO-4</td><td class="id">BR-08</td><td>FR-19</td><td class="c">AC-08</td></tr>
+    <tr><td class="c">BO-5</td><td class="id">BR-09</td><td>FR-21, FR-22</td><td class="c">AC-09</td></tr>
+    <tr><td class="c">BO-6</td><td class="id">BR-10</td><td>FR-04</td><td class="c">AC-12</td></tr>
+    <tr><td class="c">BO-6</td><td class="id">BR-11</td><td>FR-23, FR-24, FR-25</td><td class="c">AC-10</td></tr>
+    <tr><td class="c">BO-7</td><td class="id">BR-12</td><td>FR-26, FR-27</td><td class="c">AC-13, AC-20</td></tr>
+    <tr><td class="c">BO-7</td><td class="id">BR-13</td><td>FR-28</td><td class="c">AC-14</td></tr>
+    <tr><td class="c">BO-7</td><td class="id">BR-14</td><td>FR-05, FR-09, FR-29</td><td class="c">AC-01, AC-15</td></tr>
+    <tr><td class="c">BO-8</td><td class="id">BR-15</td><td>FR-03, FR-33</td><td class="c">AC-16</td></tr>
+    <tr><td class="c">BO-7</td><td class="id">BR-16</td><td>FR-31, FR-32</td><td class="c">AC-17, AC-18</td></tr>
+    <tr><td class="c">BO-7</td><td class="id">BR-17</td><td>FR-30</td><td class="c">AC-19</td></tr>
+    <tr><td class="c">BO-3</td><td class="id">BR-18</td><td>FR-20</td><td class="c">AC-05</td></tr>
+  </tbody>
+</table>
+
+<table class="t">
+  <caption>Coverage check</caption>
+  <thead><tr><th style="width:56mm">Check</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>Business requirements with at least one functional requirement</td><td>18 of 18</td></tr>
+    <tr><td>Business requirements with at least one acceptance criterion</td><td>18 of 18</td></tr>
+    <tr><td>Functional requirements traced to a business requirement</td><td>33 of 33</td></tr>
+    <tr><td>Business objectives covered by at least one requirement</td><td>8 of 8</td></tr>
+    <tr><td>Must-have requirements demonstrated at issue</td><td>All except the cloud-endpoint element of BR-16, pending DP-02</td></tr>
+  </tbody>
+</table>
+
+<h3>Requirements not carried forward</h3>
+<table class="t">
+  <caption>Requirements considered and deliberately excluded</caption>
+  <thead><tr><th style="width:52mm">Considered requirement</th><th>Reason for exclusion</th></tr></thead>
+  <tbody>
+    <tr><td>Stress defined relative to transformer rating</td><td>The available data contains no asset ratings. Adopting an assumed rating would have produced authoritative-looking figures resting on an invented constant. Recorded as constraint CN-03 and limitation BX-01.</td></tr>
+    <tr><td>Automatic reinforcement recommendation</td><td>Follows from the above. The capability informs the decision; it cannot make it.</td></tr>
+    <tr><td>Household-level insight for targeted engagement</td><td>Prohibited by the data licence and unnecessary for the business purpose.</td></tr>
+    <tr><td>Smart-tariff and managed-charging scenarios</td><td>Excluded from this phase so that results characterise the uncontrolled worst case. Carried forward as BF-01.</td></tr>
+  </tbody>
+</table>
+
+<p style="margin-top:8mm; padding-top:3mm; border-top:1px solid var(--grid); font-size:9pt; color:var(--ink2);">
+<strong>End of document</strong> &nbsp;&#183;&nbsp; DRG-BRD-001 v1.0 &nbsp;&#183;&nbsp; 28 August 2026
+&nbsp;&#183;&nbsp; Companion document: DRG-SAD-001 Architecture &amp; Design Document</p>
+
+</body>
+</html>

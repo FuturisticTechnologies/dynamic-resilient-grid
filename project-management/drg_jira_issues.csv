@@ -1,0 +1,1010 @@
+Issue Type,Issue Key,Issue ID,Summary,Description,Epic Name,Epic Link,Status,Resolution,Priority,Assignee,Reporter,Story Points,Sprint,Components,Labels,Created,Updated,Resolved,Due Date,Comment,Comment,Comment,Comment
+Epic,DRG-1,10001,Data Foundations and Ingestion,"Get half-hourly smart-meter demand into a shape the rest of the platform can
+trust, and make the project runnable by anyone without the licensed dataset.
+
+Scope: the Low Carbon London loader, the calibrated synthetic generator used
+when LCL is unavailable, config, IO and logging utilities, and the raw ->
+interim -> processed data contract.
+
+Explicit non-goal: no physical power-flow modelling. DRG is a demand-side
+tool and the boundary is stated so nobody expects load-flow results from it.",Data Foundations,,Done,Done,Highest,divya.maram,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Data;Platform,year1;foundation,2025-01-02 09:20:00,2025-03-14 16:20:00,2025-03-14 16:20:00,,"2025-01-02 09:55:00;geetha.nallamada;The constraint that shapes this epic: the LCL dataset is licensed and we cannot assume a reviewer, a new joiner or a CI runner has it. Everything must run end to end on synthetic data that is calibrated to the real thing, or the project is undemonstrable.","2025-01-02 11:10:00;devendranath.singam;Agreed, and I want that to be the default path rather than a fallback nobody exercises. If the synthetic route is only used in emergencies it will be broken when we need it.","2025-03-14 16:18:00;divya.maram;Closing. Loader handles LCL, the synthetic generator reproduces its seasonality and household spread, and a clean clone runs with no key and no dataset.",
+Epic,DRG-2,10002,Neighbourhood Consumption Analysis,"Objective 1 of the proposal: understand how neighbourhood consumption actually
+behaves before modelling it.
+
+Scope: profiling by time of day, day of week and season; household
+heterogeneity within a neighbourhood; the daily and weekly shapes that later
+justify the lag features; and the reporting figures that go into the design
+document.",Consumption Analysis,,Done,Done,High,geetha.nallamada,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Analysis,year1;eda,2025-01-02 09:22:00,2025-04-25 15:40:00,2025-04-25 15:40:00,,"2025-01-20 10:30:00;geetha.nallamada;The point of this epic is not charts. It is to find out what the weekly cycle looks like, because if weekly seasonality dominates then lag_336 is the single most important feature we will build and everything downstream follows from that.","2025-04-25 15:38:00;geetha.nallamada;Closed, and it did dominate. That finding drives the feature set, the model choice and eventually the SHAP story.",,
+Epic,DRG-3,10003,Feature Engineering,"Turn a half-hourly series into a supervised learning problem without leaking
+the future into the past.
+
+Scope: calendar features, cyclical encodings of time of day and day of week,
+lag features at 1, 48 and 336 half-hours, rolling statistics, weather joins,
+and the chronological split contract every model must honour.",Feature Engineering,,Done,Done,Highest,divya.maram,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Features,year1;features,2025-01-02 09:24:00,2025-06-06 16:10:00,2025-06-06 16:10:00,,"2025-02-10 09:45:00;divya.maram;Every feature in this epic gets one question asked of it: at the moment we would make this prediction in production, is this value knowable? If the answer is no or unclear, it does not go in.",2025-06-06 16:05:00;geetha.nallamada;Closed. DRG-58 was the reason that question needed a test behind it rather than a habit.,,
+Epic,DRG-4,10004,Forecasting Model Ladder,"Objective 2: short-term half-hourly demand forecasting, with every model
+measured against the operational status quo.
+
+The ladder, all evaluated on the same held-out chronological window:
+seasonal naive (the thing an operator does today), linear/Ridge, XGBoost as
+the primary model, and an optional deep sequence model.
+
+Rule for the epic: the naive baseline is a first-class published result. A
+model that cannot beat ""same half-hour yesterday"" does not get deployed.",Model Ladder,,Done,Done,Highest,geetha.nallamada,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Models,year1;modelling,2025-01-02 09:26:00,2025-09-19 16:30:00,2025-09-19 16:30:00,,"2025-06-16 09:40:00;geetha.nallamada;Naive first, then linear, then trees, then deep - in that order, and each one has to earn its place against the one below it. Starting with XGBoost would mean never finding out that Ridge gets within 0.13 MAE of it for a fraction of the complexity.","2025-08-11 10:20:00;divya.maram;Rolling-origin CV over five expanding folds rather than a single split, so we know the test result is not a lucky window.","2025-09-19 16:25:00;geetha.nallamada;Closed. XGBoost at 0.70 MAE against seasonal naive at 1.54, and the CV band is 0.74 to 0.95 RMSE so the headline is honest.",
+Epic,DRG-5,10005,Statistical Stress Detection,"Objective 3: define grid stress from data rather than from an assumed
+capacity limit, which we do not have.
+
+Stress is a half-hour above a percentile of that neighbourhood's own
+historical demand distribution. Each site is compared against itself, so a
+dense urban feeder and a suburban one are both measurable without knowing
+either one's rating.
+
+Scope: threshold derivation, event detection, frequency and duration metrics,
+and the alarm quality measures that let a forecast be judged on stress rather
+than only on error.",Stress Detection,,Done,Done,High,geetha.nallamada,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Stress,year1;stress,2025-01-02 09:28:00,2025-11-14 15:50:00,2025-11-14 15:50:00,,"2025-09-29 10:15:00;geetha.nallamada;The honest framing, which goes in the design doc: we do not have transformer ratings, so we cannot say a neighbourhood is over capacity. What we can say is that it is in the top 5% of its own history, and that this is happening ten times more often under an electrification scenario. That is a defensible claim and the other one is not.","2025-11-14 15:45:00;divya.maram;Closed. P95 per site, events detected with a minimum duration, and stress-alarm F1 published alongside MAE for every model.",,
+Epic,DRG-6,10006,Electrification Scenario Simulation,"Objective 4: simulate EV and heat-pump adoption from the bottom up and
+quantify how much they amplify peak demand.
+
+Scope: per-household adoption sampling, EV charging profiles, heat-pump
+profiles driven by temperature, diversity between the two loads, and scenario
+sweeps from base through to high adoption.
+
+Every scenario reports its after-diversity maximum demand per device and its
+energy per vehicle per day, so the assumptions can be audited against DNO
+planning practice rather than taken on trust.",Electrification Simulation,,Done,Done,Highest,divya.maram,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Simulation,year1;simulation,2025-01-02 09:30:00,2026-02-13 16:40:00,2026-02-13 16:40:00,,"2025-11-24 09:50:00;divya.maram;The number that will decide whether this is credible is diversity. If EV and heat pump peaks are simply added, we will overstate the problem and a DNO planner will stop reading.","2026-01-16 14:20:00;geetha.nallamada;And that turned out to be the finding rather than a caveat - see DRG-80. EV alone at 80% gives +154%, heat pumps alone at 70% give +113%, together +237%. Twenty-nine percentage points less than additive.","2026-02-13 16:35:00;divya.maram;Closed. Five scenarios, ADMD printed per scenario at 1.20 kW per EV and 1.30 kW per heat pump, which lands inside the range DNOs actually plan with.",
+Epic,DRG-7,10007,Sensitivity Analysis,"Objective 5: how sensitive are stress frequency and duration to the
+assumptions we chose?
+
+Scope: sweeping adoption rates, charging behaviour, heat-pump COP and the
+stress percentile itself; reporting how each output moves; and identifying
+which assumptions the conclusions actually depend on.",Sensitivity Analysis,,Done,Done,High,geetha.nallamada,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Analysis,year2;sensitivity,2025-01-02 09:32:00,2026-04-10 15:20:00,2026-04-10 15:20:00,,2026-02-23 10:40:00;geetha.nallamada;A single scenario number with no sensitivity around it invites the reader to argue about the assumption instead of the conclusion. This epic exists so we can say which assumptions matter and which do not.,"2026-04-10 15:15:00;geetha.nallamada;Closed. The conclusion is robust to charging behaviour and COP within plausible ranges, and highly sensitive to the adoption rate itself - which is the honest answer and also the one planners can act on.",,
+Epic,DRG-8,10008,Explainable AI,"Objective 6: explain the forecasts, globally and during stress specifically.
+
+Scope: SHAP over the primary model, global driver ranking, a separate ranking
+restricted to stress half-hours, and per-prediction explanations surfaced in
+the dashboard and the API.
+
+An operator being asked to act on a stress alarm needs to know why the model
+expects it, or the alarm is just a number they will learn to ignore.",Explainable AI,,Done,Done,High,geetha.nallamada,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Explain,year2;xai,2025-01-02 09:34:00,2026-05-22 16:00:00,2026-05-22 16:00:00,,"2026-04-20 11:15:00;geetha.nallamada;Explaining stress periods separately from all periods is the part I care about. If the drivers differ, that is operationally interesting; if they do not, that is reassuring. Either way it is worth knowing rather than assuming.","2026-05-22 15:55:00;divya.maram;Closed. lag_336 at 39% globally and 39% during stress, and its share grows on the other lags during stress - high-demand half-hours are strongly recurrent, which is exactly why they are forecastable.",,
+Epic,DRG-9,10009,Near-Real-Time Replay and External Feeds,"Objective 7, part one: make the system behave like something operational
+rather than a batch study.
+
+Scope: a replay engine that streams historical half-hours at accelerated wall
+clock, live weather and carbon-intensity feeds from key-free public APIs, and
+a graceful path when a feed is unavailable.
+
+Replay is event-time driven, so a replayed window reproduces exactly the
+forecasts and alarms it produced the first time.",Replay & Feeds,,Done,Done,High,devendranath.singam,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Streaming,year2;streaming,2025-01-02 09:36:00,2026-03-27 16:10:00,2026-03-27 16:10:00,,"2026-02-16 09:30:00;devendranath.singam;Two rules, both borrowed from painful experience. Event time, never wall clock, or the replay is untestable. And no external feed is allowed to be load-bearing - if the weather API is down, the run degrades and says so, it does not fail.","2026-03-27 16:05:00;devendranath.singam;Closed. Replay reproduces its output exactly across runs and both feeds are key-free, so this works on a laptop with no credentials.",,
+Epic,DRG-10,10010,Forecast and Scenario REST API,"Objective 7, part two: serve forecasts, stress state and scenarios over HTTP
+so DRG can be consumed by something other than its own dashboard.
+
+Scope: FastAPI service, forecast and stress endpoints, scenario invocation,
+health and readiness, OpenAPI docs, and a model version stamped on every
+response so any answer can be reproduced later.",REST API,,Done,Done,High,devendranath.singam,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),API,year2;api,2025-01-02 09:38:00,2026-06-19 15:30:00,2026-06-19 15:30:00,,2026-05-11 10:20:00;devendranath.singam;Every response carries the model version and the as-of timestamp. A forecast you cannot trace back to a model artefact is a number you cannot defend three months later when someone asks why the plan said what it said.,"2026-06-19 15:25:00;geetha.nallamada;Closed. Endpoints for forecast, stress, scenario and explanation, all versioned.",,
+Epic,DRG-11,10011,Operator Dashboard,"The interface a network planner actually uses: demand and forecast, current
+stress state, scenario comparison, SHAP drivers, and the replay view.
+
+Scope: the Streamlit application, a shared chart theme, one page per question
+the proposal asks, and a plain statement on every page of what the numbers
+can and cannot tell you.",Operator Dashboard,,In Progress,,High,divya.maram,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Dashboard,year2;dashboard,2025-01-02 09:40:00,2025-01-02 09:40:00,,,"2026-04-27 09:35:00;divya.maram;One chart theme before the first chart. Fixed colour per neighbourhood across every page, sequential ramps for magnitude only, and no dual axes - the same rules that stopped us shipping misleading charts elsewhere.",2026-09-07 11:40:00;divya.maram;Remaining: the sensitivity page and the operator runbook panel. Everything else has shipped.,,
+Epic,DRG-12,10012,"MLOps: Registry, Gates and Promotion","Stop ""the model"" meaning whatever is in someone's artefacts folder.
+
+Scope: a model registry with versioned artefacts and metrics, a promotion
+gate with explicit thresholds, a model spec that travels with the artefact,
+and a promotion pipeline that refuses to ship a model that has regressed.
+
+The gate checks stress-alarm F1 as well as error, because a model can improve
+MAE while getting worse at the thing the platform exists to detect.",MLOps,,In Progress,,High,devendranath.singam,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),MLOps,year2;mlops,2025-01-02 09:42:00,2025-01-02 09:42:00,,,"2026-06-01 10:30:00;devendranath.singam;The gate is not a formality. It should have teeth, and it should occasionally stop us shipping something we were pleased with.","2026-07-13 14:15:00;geetha.nallamada;It already has - DRG-107 was a model with better MAE and worse stress F1, which is precisely the trade the gate exists to catch.",,
+Epic,DRG-13,10013,Azure Deployment and Infrastructure,"Everything runs on laptops. There is no shared environment, no scheduled
+retrain and no way for a stakeholder to see the system without one of us
+running it.
+
+Scope: Bicep for the Azure footprint - storage, container registry, key
+vault, monitoring, Container Apps and an Azure ML workspace; AML training
+jobs and managed online endpoints; and deployment scripts for both shells.",Azure Infrastructure,,In Progress,,High,devendranath.singam,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Infrastructure,year2;azure,2025-01-02 09:44:00,2025-01-02 09:44:00,,,2026-06-22 09:50:00;devendranath.singam;Bicep rather than Terraform here because the whole target estate is Azure and the ML workspace is the awkward part - the first-party templates are simply better maintained for AML.,2026-09-04 15:20:00;devendranath.singam;Infrastructure deploys clean. The managed endpoint and the scheduled retrain are the two blocks left.,,
+Epic,DRG-14,10014,Engineering Practice and CI/CD,"The habits that keep a research codebase usable: one command to run
+everything, a real test suite, lint and format on every push, and a build
+that fails when the pipeline does.
+
+Scope: the CLI, the orchestrated end-to-end pipeline, GitHub Actions for CI
+and for model and infrastructure deployment, containerisation, and the
+developer setup scripts.",Engineering Practice,,Done,Done,High,devendranath.singam,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Platform;CI,foundation;ci,2025-01-02 09:46:00,2026-07-31 16:20:00,2026-07-31 16:20:00,,"2025-01-13 11:20:00;devendranath.singam;run-all exists from week two, not from month twelve. If the full pipeline is not runnable in one command early, every stage after it gets built against a slightly different idea of what came before.","2026-07-31 16:15:00;devendranath.singam;Closed. CI runs the full pipeline on synthetic data on every push, in about seven minutes.",,
+Epic,DRG-15,10015,Documentation and Data Governance,"What the system does, what it does not do, and what may be done with the data.
+
+Scope: the architecture document, the business requirements document, the
+README as the front door, the modelling notes, and the governance position on
+the licensed dataset - what is redistributable, what is not, and why the
+synthetic path exists.",Docs & Governance,,In Progress,,Medium,geetha.nallamada,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Docs,docs;governance,2025-01-02 09:48:00,2025-01-02 09:48:00,,,"2025-02-24 10:10:00;geetha.nallamada;The non-goals section is the most important part of the architecture document. DRG does no power-flow modelling, and if that is not stated plainly on page one somebody will eventually present it as if it did.",2026-09-08 10:25:00;amit.shinde;Picking up the business requirements refresh. The original BRD predates about half of what has been built.,,
+Epic,DRG-16,10016,Delivery Management and Governance,"Running the project: sprint ceremonies, the RAID log, stakeholder reporting,
+onboarding, and the dependency and risk tracking that keeps a twenty-month
+programme from drifting.
+
+Owned by the project coordinator, and deliberately a real epic rather than
+invisible overhead - the risks it tracks have changed delivery decisions.",Delivery Management,,In Progress,,Medium,sabitha.lingala,sabitha.lingala,,Sprint 1 (06 Jan - 17 Jan 2025),Governance,delivery;governance,2025-01-02 09:50:00,2025-01-02 09:50:00,,,"2025-01-02 10:05:00;sabitha.lingala;Cadence agreed: two-week sprints from Monday 6 January, planning on the first Monday, review and retro on the second Friday, written standups daily. Monthly stakeholder report on the first working day of the month.","2025-01-02 10:15:00;sabitha.lingala;RAID log is open. First entry is the LCL licence - we do not yet know whether we can redistribute any of it, and a lot depends on the answer.","2026-09-08 09:20:00;sabitha.lingala;Twenty months in. 43 sprints, six people, three of whom joined mid-flight. The onboarding pattern from DRG-99 and DRG-115 is now our standard.",
+Epic,DRG-17,10017,Quality Engineering and Test Automation,"Cut in June 2026 when the QA analyst joined.
+
+Scope: a written test strategy per layer, regression packs for data,
+features, models, stress, simulation and the API, dashboard smoke tests,
+CI gating, and the UAT process with the stakeholder groups.
+
+The premise, from the gap analysis in DRG-99: almost every defect on this
+project has been silent - a plausible wrong number rather than a crash - so
+coverage is about assertions between stages, not about counting tests.",Quality Engineering,,In Progress,,High,neha.chauhan,sabitha.lingala,,Sprint 38 (08 Jun - 19 Jun 2026),Quality,qa;testing,2026-06-15 14:00:00,2026-06-15 14:00:00,,,"2026-06-15 14:20:00;sabitha.lingala;Cut this the day Neha started rather than folding QA work into other epics, so the coverage gap is visible on the board instead of being everyone's second priority.","2026-06-26 16:10:00;neha.chauhan;First pass of the gap analysis is in. Three areas with no coverage at all: the simulation, the API contract, and anything asserting that a model artefact matches the spec it claims.","2026-09-08 15:40:00;neha.chauhan;Data, features, models and stress now have regression packs. Simulation is in progress, UAT starts next sprint.",
+Epic,DRG-18,10018,Business Analysis and Stakeholder Enablement,"Cut in August 2026, ahead of the BA joining on 24 Aug.
+
+Scope: refreshing the business requirements against what was actually built,
+requirements traceability from the BRD through to modules and dashboard
+views, the stakeholder-facing glossary, and UAT facilitation with the network
+planning teams.
+
+Why it exists late: for twenty months the modelling lead and the coordinator
+carried the stakeholder relationship between them. That stopped scaling once
+DNO planners, the sustainability team and the academic partner all wanted
+different cuts of the same results.",Business Analysis,,In Progress,,Medium,sabitha.lingala,sabitha.lingala,,Sprint 43 (17 Aug - 28 Aug 2026),Docs;Governance,ba;stakeholders,2026-08-17 11:00:00,2026-08-17 11:00:00,,,2026-08-17 11:15:00;sabitha.lingala;Creating this a week early so there is a real backlog on day one. Amit starts 24 Aug.,2026-08-25 10:40:00;amit.shinde;First read of the BRD against the repository. The gap is not that things are missing - it is that the document describes an ambition and the code has since answered it more precisely. The refresh is mostly replacing intentions with findings.,,
+Task,DRG-19,10019,"Project kickoff, ways of working and the RAID log","Agree how the project runs before it starts running.
+
+* two-week sprints from Mon 06 Jan; planning first Monday, review and retro
+  second Friday, written standups daily
+* definition of done: merged, tested, runnable from the CLI, documented
+* RAID log opened and reviewed at every planning session
+* monthly stakeholder report on the first working day of the month",,DRG-16,Done,Done,Medium,sabitha.lingala,sabitha.lingala,2,Sprint 1 (06 Jan - 17 Jan 2025),Governance,kickoff,2025-01-02 09:15:00,2025-01-09 15:20:00,2025-01-09 15:20:00,,"2025-01-02 10:20:00;sabitha.lingala;Definition of done includes 'runnable from the CLI'. On a twenty-month research project the failure mode is a pile of notebooks nobody else can execute, and the cheapest defence is to make runnability part of done from day one.","2025-01-06 11:30:00;devendranath.singam;Strongly agree. I would add that it has to run without the licensed dataset, otherwise 'runnable' means runnable by whoever has the data.","2025-01-09 15:15:00;sabitha.lingala;Both in. RAID log open with three initial risks: the LCL licence, PyTorch on Windows, and single points of knowledge across a small team.",
+Story,DRG-20,10020,Repository scaffold and packaging,"As an engineer
+I want a src-layout package that installs cleanly
+So that imports behave the same in tests, CLI and notebooks.
+
+* src/drg with analysis, data, features, models, stress, simulation, explain,
+  streaming, api, dashboard, mlops, utils
+* pyproject.toml, editable install, console entry point
+* artifacts/ and data/ gitignored with their structure documented",,DRG-14,Done,Done,Medium,devendranath.singam,sabitha.lingala,3,Sprint 1 (06 Jan - 17 Jan 2025),Platform,setup,2025-01-06 09:20:00,2025-01-10 14:40:00,2025-01-10 14:40:00,,2025-01-07 10:15:00;devendranath.singam;src layout rather than a flat package. It costs one line in pyproject and it means a test can never accidentally import the working directory instead of the installed package - which is how you get a green suite against code that would not ship.,2025-01-10 14:35:00;divya.maram;Verified from a clean venv on Windows and Linux.,,
+Task,DRG-21,10021,"Split dependencies into core, deep, azure and dev tiers","Keep the base install small enough that a reviewer can run the project.
+
+* requirements.txt - everything needed for run-all
+* requirements-deep.txt - PyTorch, optional
+* requirements-azure.txt - Azure SDKs, MLflow, optional
+* requirements-dev.txt - pytest, ruff, black
+* README states which tier is needed for which command",,DRG-14,Done,Done,Medium,devendranath.singam,sabitha.lingala,2,Sprint 1 (06 Jan - 17 Jan 2025),Platform,setup,2025-01-06 09:25:00,2025-01-14 11:20:00,2025-01-14 11:20:00,,"2025-01-13 10:40:00;devendranath.singam;Torch is deliberately not in the base install. It is a large download, it is optional to the argument the project is making, and on Windows it needs a system runtime we cannot assume - which is already RAID risk 2 and will bite us later.",,,
+Story,DRG-22,10022,Low Carbon London smart-meter loader,"As the platform
+I want the LCL half-hourly household dataset loaded into a canonical frame
+So that every downstream stage sees the same shape regardless of source.
+
+* household id, timestamp, kWh, tariff group, neighbourhood
+* half-hourly index validated: no duplicates, no gaps within a household
+* memory-conscious chunked read; the raw files are large
+* canonical schema documented, and the synthetic generator must match it",,DRG-1,Done,Done,Medium,divya.maram,sabitha.lingala,8,Sprint 1 (06 Jan - 17 Jan 2025),Data,ingestion;lcl,2025-01-06 09:30:00,2025-01-17 16:10:00,2025-01-17 16:10:00,,"2025-01-08 11:20:00;divya.maram;Defining the canonical frame first and making both the LCL loader and the synthetic generator targets of it, rather than letting the real loader define the shape and retrofitting synthetic to match. Otherwise the synthetic path is permanently second class.","2025-01-15 09:50:00;geetha.nallamada;That is the right call. The moment the two diverge, every result becomes 'which loader produced this?'","2025-01-17 16:05:00;divya.maram;Loaded and validated. It found real gaps in the source, which is DRG-37's problem rather than the loader's - it reports them and does not paper over them.",
+Task,DRG-23,10023,Review the LCL licence and what may be redistributed,"RAID risk 1. Establish what we can commit, publish and ship.
+
+Question to answer: can any of the licensed dataset live in the repository,
+in CI, or in a stakeholder demo?
+
+Outcome required either way: a written position in the governance section,
+and a plan that does not depend on a favourable answer.",,DRG-15,Done,Done,Medium,sabitha.lingala,sabitha.lingala,2,Sprint 1 (06 Jan - 17 Jan 2025),Governance,raid;licence,2025-01-06 09:35:00,2025-01-31 15:40:00,2025-01-31 15:40:00,,2025-01-20 14:20:00;sabitha.lingala;Chasing this. Flagging early that the answer being 'no' is the likely case and we should not plan as if it will be 'yes'.,"2025-01-31 15:30:00;sabitha.lingala;Answer: no redistribution, no committing extracts, no shipping it in a container. Derived aggregate statistics are fine. So the synthetic generator is not a convenience - it is the only way this project is demonstrable, and DRG-24 moves up the plan accordingly.","2025-01-31 16:05:00;geetha.nallamada;That is a better outcome than it sounds. It forces the synthetic path to be first class, which means every reviewer, every CI run and every new joiner exercises the same route.",
+Story,DRG-24,10024,Calibrated synthetic smart-meter generator,"As anyone without the licensed dataset
+I want a generator that produces realistic half-hourly household demand
+So that the entire pipeline runs end to end with no data and no API key.
+
+* daily double-peak shape, weekday/weekend difference, seasonal amplitude
+* household heterogeneity - base load and peak behaviour vary per household
+* calibrated against LCL aggregate statistics, not invented
+* seeded and reproducible; the same seed gives the same dataset
+* emits the canonical frame from DRG-22",,DRG-1,Done,Done,Highest,divya.maram,sabitha.lingala,8,Sprint 2 (20 Jan - 31 Jan 2025),Data,synthetic;foundation,2025-01-20 09:20:00,2025-01-31 16:30:00,2025-01-31 16:30:00,,"2025-01-21 10:30:00;divya.maram;Calibrated means the summary statistics match: mean and spread of household daily consumption, the morning and evening peak ratio, the weekday to weekend difference, and the winter to summer amplitude. Those come out of the LCL analysis and go in as targets.","2025-01-27 15:15:00;geetha.nallamada;Checked the output against the LCL aggregates I have. Load shapes overlay well and the household spread is right. It will not fool anyone into thinking it is real data, and it does not need to - it needs to exercise the same code paths and produce conclusions of the same shape.","2025-01-31 16:25:00;divya.maram;Done. Full run on synthetic takes about four minutes on a laptop, which keeps CI viable.",
+Story,DRG-25,10025,CLI and the run-all pipeline,"As anyone
+I want one command that runs ingest, EDA, features, train, stress, scenarios
+and SHAP
+So that the project is reproducible rather than a sequence of remembered steps.
+
+* python -m drg.cli run-all, and each stage individually
+* stages read and write the documented data contract, not each other's memory
+* a failed stage stops the run and names itself
+* run report written to artifacts/reports/run_report.json",,DRG-14,Done,Done,Medium,devendranath.singam,sabitha.lingala,5,Sprint 2 (20 Jan - 31 Jan 2025),Platform,cli;pipeline,2025-01-20 09:25:00,2025-02-04 15:50:00,2025-02-04 15:50:00,,"2025-01-22 11:40:00;devendranath.singam;Building run-all now, in week three, when there are two stages to orchestrate. Doing it at the end means every stage gets built against a slightly different idea of what the previous one produced, and the integration is then a project of its own.",2025-02-04 15:45:00;geetha.nallamada;Accepted. The run report is the part I did not expect to value as much as I do - every headline number in the README regenerates from it.,,
+Story,DRG-26,10026,"Configuration, IO and logging utilities","As the codebase
+I want one config object, one IO helper and one logger setup
+So that paths, seeds and parameters are not redefined in nine modules.
+
+* configs/config.yaml as the single source of tunable parameters
+* typed access, with defaults and validation at load
+* IO helpers that create parent directories and record what was written
+* structured logging with a consistent stage prefix",,DRG-1,Done,Done,Medium,devendranath.singam,sabitha.lingala,3,Sprint 2 (20 Jan - 31 Jan 2025),Platform,setup,2025-01-20 09:30:00,2025-01-30 14:20:00,2025-01-30 14:20:00,,"2025-01-28 09:45:00;devendranath.singam;The stress percentile, the adoption rates, the split dates and the seed all live in config.yaml. Anything a reviewer might reasonably want to change should not require reading source.",,,
+Bug,DRG-27,10027,Half-hourly index breaks at the British Summer Time change,"Observed: the loader reports duplicate timestamps on the last Sunday in
+October and missing ones on the last Sunday in March, for every household.
+
+Impact: two corrupt days per year in every series. Small in volume, and
+exactly the kind of thing that silently distorts a daily-profile average and
+then propagates into every lag feature built on it.
+
+Cause: timestamps parsed as naive local time. At the autumn change 01:00-02:00
+occurs twice; at the spring change it does not occur at all.
+
+Fix: parse as UTC, carry a separate local-time column for the calendar
+features that genuinely need local hour. Add a check asserting exactly 48
+half-hours per household per UTC day.",,DRG-1,Done,Done,High,divya.maram,geetha.nallamada,3,Sprint 2 (20 Jan - 31 Jan 2025),Data,timezone;data-quality,2025-01-27 11:15:00,2025-02-03 12:40:00,2025-02-03 12:40:00,,2025-01-27 11:30:00;geetha.nallamada;Found it plotting a daily profile that had a step in it on exactly two days of the year. Worth saying out loud that this is the single most common bug in UK half-hourly energy data and it will not be the last time it costs us an afternoon.,2025-01-29 10:20:00;divya.maram;Confirmed. Modelling in UTC and deriving local hour for the calendar features. The alternative - keeping everything local - means the index is not monotonic twice a year and every rolling window quietly misbehaves around it.,"2025-02-03 12:35:00;divya.maram;Fixed, with the 48-per-day assertion. It now also catches genuinely missing meter reads, which is how DRG-37 got found.",
+Story,DRG-28,10028,The raw to interim to processed data contract,"As the pipeline
+I want each stage to read and write a documented location and schema
+So that stages can be run, re-run and tested independently.
+
+* data/raw untouched; data/interim cleaned and typed; data/processed model-ready
+* schema documented per layer, including units and timezone
+* every processed artefact stamped with the config hash and generator seed",,DRG-1,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 3 (03 Feb - 14 Feb 2025),Data,contract,2025-02-03 09:20:00,2025-02-13 15:10:00,2025-02-13 15:10:00,,2025-02-05 10:30:00;divya.maram;The config hash on every artefact is what stops the classic research failure: a figure in a report that nobody can regenerate because the parameters have moved since.,2025-02-13 15:05:00;sabitha.lingala;Noting this in the RAID log as closing the reproducibility risk. It was the one I was most worried about.,,
+Story,DRG-29,10029,Neighbourhood aggregation from household meters,"As the analysis
+I want household reads aggregated to neighbourhood half-hourly demand
+So that stress and forecasting operate at the level a planner cares about.
+
+* four neighbourhoods, roughly 120 households each
+* aggregation handles partial households explicitly - a neighbourhood total
+  built from a varying household count is not comparable over time
+* household count per half-hour retained alongside the total",,DRG-1,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 3 (03 Feb - 14 Feb 2025),Data,aggregation,2025-02-03 09:25:00,2025-02-14 16:00:00,2025-02-14 16:00:00,,"2025-02-07 11:20:00;divya.maram;Keeping the contributing household count is the important bit. Without it, a neighbourhood whose meters drop out for a week looks like a neighbourhood whose demand fell, and that is indistinguishable in the aggregate.","2025-02-14 15:55:00;geetha.nallamada;Agreed, and it means we can normalise per household when comparing sites of different sizes.",,
+Task,DRG-30,10030,CI on every push,"* .github/workflows/ci.yml: lint, format check, tests, and a full run-all on
+  synthetic data
+* under ten minutes
+* red build blocks merge
+* no licensed data and no API keys required, per DRG-23",,DRG-14,Done,Done,Medium,devendranath.singam,sabitha.lingala,5,Sprint 3 (03 Feb - 14 Feb 2025),CI,ci,2025-02-03 09:30:00,2025-02-14 15:20:00,2025-02-14 15:20:00,,2025-02-12 14:10:00;devendranath.singam;Running the whole pipeline in CI rather than only unit tests. It costs four minutes and it is the only thing that proves the stages still fit together.,2025-02-14 15:15:00;divya.maram;First green run caught a stage that only worked because I had a stale interim file locally.,,
+Task,DRG-31,10031,"Architecture document, with the non-goals stated first","Write docs/ARCHITECTURE.md covering the stage pipeline, the data contract,
+the module boundaries and the deployment target.
+
+Non-goals, stated explicitly and early:
+* no physical power-flow or load-flow modelling
+* no network topology, no transformer ratings, no voltage analysis
+* stress is statistical and relative to a site's own history, not a capacity
+  breach
+
+DRG is a demand-side scenario tool. Someone will eventually present it as
+more than that unless the boundary is written down where they will see it.",,DRG-15,Done,Done,Medium,geetha.nallamada,sabitha.lingala,3,Sprint 3 (03 Feb - 14 Feb 2025),Docs,architecture;docs,2025-02-04 09:15:00,2025-02-24 14:30:00,2025-02-24 14:30:00,,"2025-02-24 14:25:00;geetha.nallamada;Non-goals are section two, ahead of the architecture itself. The single biggest reputational risk on a project like this is someone in a planning meeting believing we modelled the network.","2025-02-25 09:40:00;sabitha.lingala;Adding that to the RAID log as a live risk with the document as its mitigation, so it stays visible rather than being considered handled.",,
+Story,DRG-32,10032,Daily and weekly load shape profiling,"As the analysis
+I want average load shapes by time of day, day of week and season
+So that the modelling decisions rest on the data's actual structure.
+
+* half-hourly profile per neighbourhood, weekday against weekend
+* seasonal overlay - winter, spring, summer, autumn
+* peak timing and magnitude quantified per site, not eyeballed",,DRG-2,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 4 (17 Feb - 28 Feb 2025),Analysis,eda,2025-02-17 09:20:00,2025-02-28 15:40:00,2025-02-28 15:40:00,,"2025-02-20 11:15:00;geetha.nallamada;Clear evening peak between 17:00 and 20:00 across all four sites, a weaker morning peak, and a weekend shape that is flatter and shifted later. Nothing surprising, which is itself worth confirming before building on it.",2025-02-28 15:35:00;divya.maram;The weekday/weekend split is stark enough that day-of-week has to be a feature rather than an afterthought.,,
+Story,DRG-33,10033,Household heterogeneity within a neighbourhood,"As the simulation, later
+I want to know how much households differ inside one neighbourhood
+So that EV and heat-pump adoption can be sampled realistically rather than
+applied uniformly.
+
+* distribution of household mean daily consumption per site
+* how much of neighbourhood peak comes from the top decile of households
+* whether high-consumption households peak at the same time as everyone else",,DRG-2,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 4 (17 Feb - 28 Feb 2025),Analysis,eda;simulation,2025-02-17 09:25:00,2025-03-06 16:10:00,2025-03-06 16:10:00,,"2025-03-04 10:40:00;geetha.nallamada;Wide spread - the top decile of households uses roughly three times the median. That matters for DRG-73: if EV adoption is sampled uniformly we will understate the peak, because early EV adopters are not a random draw from the population.",2025-03-06 16:05:00;divya.maram;Noted and carried into the simulation design as an explicit assumption to test rather than a correction to apply silently.,,
+Task,DRG-34,10034,Monthly stakeholder report pack,"A repeatable one-page monthly report: what shipped, what is next, RAID
+movements, and the current headline numbers straight from the run report.
+
+Generated from artifacts rather than retyped, so the report cannot drift from
+what the pipeline actually produces.",,DRG-16,Done,Done,Medium,sabitha.lingala,sabitha.lingala,3,Sprint 4 (17 Feb - 28 Feb 2025),Governance,reporting,2025-02-17 09:30:00,2025-02-28 14:20:00,2025-02-28 14:20:00,,"2025-02-26 11:30:00;sabitha.lingala;Pulling the numbers from run_report.json rather than copying them into a slide. On a twenty-month project the report and the code will diverge otherwise, and the report is what people remember.",,,
+Story,DRG-35,10035,Data quality checks on the meter feed,"As the platform
+I want the meter data checked on every run
+So that a bad load is caught before it becomes a bad model.
+
+* 48 half-hours per household per UTC day (from DRG-27)
+* no negative consumption; zero runs flagged above a threshold
+* household count per neighbourhood stable within tolerance
+* results written to the run report with pass, warn or fail per check",,DRG-1,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 4 (17 Feb - 28 Feb 2025),Data,quality,2025-02-18 09:15:00,2025-03-07 15:30:00,2025-03-07 15:30:00,,"2025-03-03 10:20:00;divya.maram;Warn rather than fail for the zero runs. A genuinely empty property reads zero for weeks and that is real data, not an error - failing on it would train us to ignore the output.",2025-03-07 15:25:00;geetha.nallamada;Right. A check that fires on normal conditions is a check nobody reads.,,
+Story,DRG-36,10036,Seasonal decomposition and the weekly cycle finding,"As the modelling
+I want the strength of daily, weekly and annual seasonality quantified
+So that the feature set is justified rather than assumed.
+
+* decomposition per neighbourhood
+* autocorrelation at 1, 48 and 336 half-hours reported explicitly
+* the finding written up in the modelling notes",,DRG-2,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 5 (03 Mar - 14 Mar 2025),Analysis,eda;seasonality,2025-03-03 09:20:00,2025-03-14 15:50:00,2025-03-14 15:50:00,,"2025-03-10 11:20:00;geetha.nallamada;Autocorrelation at 336 half-hours - the same half-hour last week - is stronger than at 48, the same half-hour yesterday. That is the single most useful thing this epic has produced, and it predicts the whole shape of the feature set.","2025-03-14 15:45:00;divya.maram;It also predicts what SHAP will eventually say. If lag_336 does not come out on top later, one of the two analyses is wrong.",,
+Bug,DRG-37,10037,Missing half-hours silently forward-filled during aggregation,"Observed: neighbourhood totals looked complete even for periods where the
+loader had reported missing household reads.
+
+Impact: gaps became flat lines rather than gaps. A forward-filled evening peak
+is a fabricated peak, and it feeds the percentile that later defines stress.
+
+Cause: the resample step used a fill method by default, so an absent read
+became the previous read rather than a null.
+
+Fix: no filling during aggregation. Missing stays missing, is counted, and is
+handled once, explicitly, with the rule written down.",,DRG-1,Done,Done,High,divya.maram,divya.maram,3,Sprint 5 (03 Mar - 14 Mar 2025),Data,data-quality;silent,2025-03-05 10:20:00,2025-03-12 14:10:00,2025-03-12 14:10:00,,"2025-03-05 10:35:00;divya.maram;Raising against my own work. The 48-per-day assertion from DRG-27 is what surfaced it - the check said data was missing while the aggregate said it was fine, and both could not be true.",2025-03-06 09:40:00;geetha.nallamada;That disagreement between two views of the same thing is worth more than either view on its own. Worth keeping as a habit: assert the same fact in two places and let them argue.,"2025-03-12 14:05:00;divya.maram;Fixed. Gaps propagate as nulls, are counted in the run report, and are handled once at the feature stage where the decision is visible.",
+Story,DRG-38,10038,"Container images for pipeline, API and dashboard","Three Dockerfiles sharing a base layer, so the same code runs locally, in CI
+and eventually on Container Apps.
+
+* docker/Dockerfile.pipeline, .api, .dashboard
+* docker-compose for the local stack
+* images build without the deep or azure dependency tiers",,DRG-14,Done,Done,Medium,devendranath.singam,sabitha.lingala,5,Sprint 5 (03 Mar - 14 Mar 2025),Platform,docker,2025-03-03 09:25:00,2025-03-14 16:00:00,2025-03-14 16:00:00,,"2025-03-11 15:20:00;devendranath.singam;Three images rather than one that does everything. The dashboard does not need XGBoost and the pipeline does not need Streamlit, and a single fat image means every deploy ships all of it.",,,
+Story,DRG-39,10039,EDA figure set and reporting artefacts,"The figures that go into the design document and the monthly report, all
+regenerated by the pipeline rather than exported by hand from a notebook.
+
+* load shape, seasonal overlay, household distribution, autocorrelation
+* written to artifacts/figures with a consistent style
+* every figure regenerable from run-all",,DRG-2,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 6 (17 Mar - 28 Mar 2025),Analysis,eda;reporting,2025-03-17 09:20:00,2025-03-28 15:20:00,2025-03-28 15:20:00,,"2025-03-26 10:15:00;geetha.nallamada;No figure in any document that cannot be regenerated by a command. A chart exported by hand from a notebook is a chart nobody can reproduce in six months, including the person who made it.",,,
+Task,DRG-40,10040,Q1 review and replan,"Quarter one review with stakeholders, and replan for Q2.
+
+Delivered: data foundations, synthetic generator, CLI and run-all, CI,
+neighbourhood aggregation, and the consumption analysis.
+
+Not delivered and deliberately deferred: any forecasting model. The quarter
+was spent making the data trustworthy, which is the sequencing we chose.",,DRG-16,Done,Done,Medium,sabitha.lingala,sabitha.lingala,2,Sprint 6 (17 Mar - 28 Mar 2025),Governance,ceremony,2025-03-17 09:25:00,2025-03-28 16:30:00,2025-03-28 16:30:00,,"2025-03-28 16:20:00;sabitha.lingala;Question from the stakeholder session, recorded because it will come back: 'when do we see a forecast?' The answer is Q3, and the reason is that a forecast built on data with two corrupt days a year and forward-filled gaps would have been ready in March and wrong.",2025-03-31 09:40:00;geetha.nallamada;That framing helped. Worth reusing verbatim next time.,,
+Story,DRG-41,10041,Weather feed from a key-free public API,"As the model
+I want temperature and related weather history joined to the demand series
+So that heating and cooling driven demand is explainable.
+
+* key-free public API, so a clean clone works with no credentials
+* historical backfill for the modelling window, and current for replay later
+* responses cached to disk; a failed call degrades the run rather than
+  killing it, and says so in the run report",,DRG-1,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 6 (17 Mar - 28 Mar 2025),Data,weather;external,2025-03-18 09:15:00,2025-04-04 15:40:00,2025-04-04 15:40:00,,"2025-03-20 11:30:00;devendranath.singam;Key-free is a hard requirement, not a preference. The moment a demo needs a credential, it needs someone with the credential, and the project stops being self-service.","2025-04-04 15:35:00;divya.maram;Cached to disk with the fetch timestamp, so a run is reproducible even if the upstream revises history - which weather APIs do.",,
+Story,DRG-42,10042,Calendar and cyclical time features,"As the model
+I want time encoded in a form a tree or a linear model can use
+So that the daily and weekly cycles are learnable.
+
+* half-hour of day, day of week, month, holiday flag (England and Wales)
+* sine and cosine encodings of time of day and day of week, so 23:30 and
+  00:00 are adjacent rather than 47 apart
+* local time used for calendar features, UTC for the index, per DRG-27",,DRG-3,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 7 (31 Mar - 11 Apr 2025),Features,features,2025-04-07 09:20:00,2025-04-16 15:30:00,2025-04-16 15:30:00,,"2025-04-09 10:20:00;divya.maram;Cyclical encoding matters more for the linear models than for the trees, but it costs two columns and it means the baseline is a fair comparison rather than one handicapped by a representation choice.",,,
+Story,DRG-43,10043,"Lag features at 1, 48 and 336 half-hours","As the model
+I want the previous half-hour, the same half-hour yesterday and the same
+half-hour last week
+So that the seasonality found in DRG-36 is available to the model.
+
+* lag_1, lag_48, lag_336, per neighbourhood
+* lags computed within a neighbourhood, never across sites
+* rows without a full lag history are dropped, not imputed",,DRG-3,Done,Done,High,divya.maram,sabitha.lingala,5,Sprint 7 (31 Mar - 11 Apr 2025),Features,features;lags,2025-04-07 09:25:00,2025-04-18 16:00:00,2025-04-18 16:00:00,,"2025-04-11 11:15:00;divya.maram;Dropping the first week rather than imputing it. An imputed lag_336 is a made-up value in the most important feature in the model, and it would be concentrated entirely at the start of the series.",2025-04-18 15:55:00;geetha.nallamada;Agreed. Losing a week of training data is cheap; poisoning the strongest feature is not.,,
+Task,DRG-44,10044,The chronological split contract,"Train, validation and test are contiguous and in time order. No shuffling,
+ever, anywhere in this codebase.
+
+* split dates in config, not scattered through modules
+* validation used for early stopping; test touched only for final reporting
+* the rule and the reason written into the modelling notes",,DRG-3,Done,Done,High,geetha.nallamada,sabitha.lingala,2,Sprint 7 (31 Mar - 11 Apr 2025),Features,split;leakage,2025-04-08 09:15:00,2025-04-17 12:20:00,2025-04-17 12:20:00,,"2025-04-08 09:40:00;geetha.nallamada;Writing this down before the first model exists. Random splits on a time series produce beautiful scores and worthless models, and the failure is invisible in the metrics - which is exactly the class of mistake that needs a written rule and a test rather than good intentions.","2025-04-17 12:15:00;divya.maram;In config, and I have added an assertion that the split boundaries are ordered and non-overlapping.",,
+Story,DRG-45,10045,Rolling statistics features,"Rolling mean and standard deviation over trailing windows, to give the model
+recent level and volatility.
+
+* windows of 48 (one day) and 336 (one week) half-hours
+* trailing and closed on the left - the current half-hour is never in its own
+  window, see DRG-46",,DRG-3,Done,Done,Medium,divya.maram,sabitha.lingala,3,Sprint 8 (14 Apr - 25 Apr 2025),Features,features,2025-04-21 09:20:00,2025-04-30 15:10:00,2025-04-30 15:10:00,,"2025-04-30 15:05:00;divya.maram;Left-closed windows, asserted in a test. The default in most libraries includes the current observation and that is a leak that will not show up as an error.",,,
+Bug,DRG-46,10046,Rolling window included the half-hour being predicted,"Observed: validation MAE of 0.11 kWh on the first Ridge run - roughly six
+times better than anything plausible for half-hourly demand.
+
+Diagnosis: the rolling mean window was centred rather than trailing, so the
+feature for 18:00 included the 18:00 value itself. The model was being handed
+a smoothed version of its own target.
+
+Impact: none published - caught before any result left the team. Had it
+shipped, the model would have looked outstanding in backtest and collapsed the
+moment it saw a genuinely unseen half-hour.
+
+Fix: trailing, left-closed windows, plus an assertion that no feature column
+correlates with the target above a threshold that only leakage explains.",,DRG-3,Done,Done,High,divya.maram,geetha.nallamada,3,Sprint 9 (28 Apr - 09 May 2025),Features,leakage;silent,2025-04-28 10:30:00,2025-05-02 14:20:00,2025-05-02 14:20:00,,"2025-04-28 10:45:00;geetha.nallamada;0.11 MAE was the tell. A result that is far better than the problem is hard is not a good result, it is a symptom - and it is worth building the reflex to be suspicious rather than pleased.",2025-04-29 11:20:00;divya.maram;Confirmed and fixed. Adding the correlation assertion so the next one is caught by CI rather than by someone's instinct.,"2025-05-02 14:15:00;geetha.nallamada;Ridge is now at 0.83 MAE, which is a believable number for this problem. Much less exciting and much more useful.",
+Task,DRG-47,10047,"Lint, format and pre-commit","ruff and black, enforced in CI and available as a pre-commit hook, with the
+configuration in pyproject rather than in five separate files.",,DRG-14,Done,Done,Medium,devendranath.singam,sabitha.lingala,2,Sprint 8 (14 Apr - 25 Apr 2025),CI,tooling,2025-04-21 09:25:00,2025-04-25 11:40:00,2025-04-25 11:40:00,,2025-04-25 11:35:00;devendranath.singam;Formatting decided by a tool so it stops being decided in review. Review time is better spent on whether the window is left-closed.,,,
+Story,DRG-48,10048,Weather features and lagged temperature,"Temperature, and derived heating and cooling degree terms, joined to the
+demand series.
+
+* current temperature, plus lags - a cold morning still affects an evening
+* heating and cooling degree hours against a configurable base temperature
+* the join is on UTC, and a missing weather hour does not silently become zero",,DRG-3,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 9 (28 Apr - 09 May 2025),Features,features;weather,2025-05-05 09:20:00,2025-05-16 15:30:00,2025-05-16 15:30:00,,"2025-05-12 10:40:00;divya.maram;Lagged temperature earns its place - buildings have thermal mass, so yesterday evening's cold is still in the walls this morning. The un-lagged version underfits exactly the cold snaps we care most about.","2025-05-16 15:25:00;geetha.nallamada;This also sets up the heat-pump simulation later, since that has to be temperature-driven to be credible.",,
+Story,DRG-49,10049,Feature sanity pass before modelling,"Before any model is fitted, check the feature matrix behaves.
+
+* no feature is constant, no feature is a duplicate of another
+* no feature correlates with the target beyond a leakage threshold (DRG-46)
+* every feature is knowable at prediction time - stated per feature, in code
+* feature list and the reason for each is in the modelling notes",,DRG-3,Done,Done,Medium,geetha.nallamada,sabitha.lingala,3,Sprint 9 (28 Apr - 09 May 2025),Features,features;quality,2025-05-05 09:25:00,2025-05-15 14:40:00,2025-05-15 14:40:00,,2025-05-14 11:20:00;geetha.nallamada;The 'knowable at prediction time' note per feature is the useful artefact here. It turns an assumption everyone holds loosely into something a reviewer can check line by line.,,,
+Task,DRG-50,10050,"RAID review: licence closed, PyTorch risk raised","Mid-year risk review.
+
+* LCL licence risk closed - position documented, synthetic path is primary
+* PyTorch on Windows raised from watch to active: the deep model is planned
+  for Q3 and the runtime dependency is unresolved
+* new risk: single points of knowledge. The simulation exists only in Divya's
+  head and the model ladder only in Geetha's",,DRG-16,Done,Done,Medium,sabitha.lingala,sabitha.lingala,2,Sprint 10 (12 May - 23 May 2025),Governance,raid,2025-05-19 09:15:00,2025-05-30 15:20:00,2025-05-30 15:20:00,,"2025-05-19 09:40:00;sabitha.lingala;The knowledge concentration risk is the one I would most like a mitigation for. Two people, twenty months, and no overlap in what they own is fine until somebody takes leave.","2025-05-23 10:30:00;geetha.nallamada;Mitigation proposed: the modelling notes and the design document have to be good enough that the other person can run the stage. That is a real deliverable rather than a promise, so it goes on the board.",2025-05-30 15:15:00;sabitha.lingala;Accepted and tracked. It is also why DRG-78 exists.,
+Story,DRG-51,10051,Materialise the processed model-ready dataset,"One processed artefact per neighbourhood, feature-complete and split-labelled,
+so training does not rebuild features on every run.
+
+* written to data/processed with the config hash
+* rebuilt only when the config or the upstream data changes
+* the split label is part of the artefact, so no stage can choose its own",,DRG-3,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 10 (12 May - 23 May 2025),Features,features;pipeline,2025-05-19 09:20:00,2025-06-02 15:50:00,2025-06-02 15:50:00,,"2025-06-02 15:45:00;divya.maram;The split label travelling with the data is the part that matters. If each model stage decides its own split, comparisons between models stop being comparisons.",,,
+Story,DRG-52,10052,Seasonal naive baseline,"As the project
+I want the operational status quo implemented as a model
+So that every later model has something real to beat.
+
+The baseline is what a control room does today: assume this half-hour looks
+like the same half-hour in the recent past.
+
+* implemented on the same interface and evaluated on the same window as
+  everything else
+* published as a first-class result, never as a footnote",,DRG-4,Done,Done,High,geetha.nallamada,sabitha.lingala,3,Sprint 11 (26 May - 06 Jun 2025),Models,baseline,2025-06-02 09:20:00,2025-06-11 15:10:00,2025-06-11 15:10:00,,"2025-06-03 10:15:00;geetha.nallamada;This is the model to beat and it deserves the same care as the others. A weak baseline makes every subsequent result look better than it is, which is a comfortable mistake and a corrosive one.",2025-06-11 15:05:00;divya.maram;1.54 MAE on the test window. That is the bar.,,
+Bug,DRG-53,10053,Seasonal naive used yesterday instead of last week,"Observed: the naive baseline scored better than expected and its errors were
+oddly structured around weekends.
+
+Cause: the shift was 48 half-hours - the same half-hour yesterday - while the
+autocorrelation analysis in DRG-36 says the weekly lag of 336 is stronger.
+Both are defensible baselines, but the code claimed one and implemented the
+other.
+
+Fix: publish both. Daily-naive is what an operator actually does; weekly-naive
+is the stronger statistical baseline. Name them separately and report both, so
+nobody has to guess which one a later comparison beat.",,DRG-4,Done,Done,Medium,geetha.nallamada,divya.maram,2,Sprint 12 (09 Jun - 20 Jun 2025),Models,baseline;definitions,2025-06-09 11:20:00,2025-06-13 14:30:00,2025-06-13 14:30:00,,2025-06-09 11:40:00;divya.maram;Not strictly a bug in the maths - it is a bug in the label. The docstring said 'same half-hour last week' and the code shifted 48.,"2025-06-10 09:30:00;geetha.nallamada;Which is worse than a maths bug in some ways, because the number was right for a thing nobody had agreed to. Publishing both and naming them is the honest fix.","2025-06-13 14:25:00;geetha.nallamada;Both in. Daily-naive is the headline baseline because it is what the control room does, and weekly-naive is reported alongside it.",
+Story,DRG-54,10054,Linear and Ridge baselines,"An interpretable linear model on the full feature set, with regularisation.
+
+* standardised features, Ridge with the penalty selected on the validation
+  window
+* coefficients reported - this model exists partly to be readable
+* same evaluation harness as every other model",,DRG-4,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 12 (09 Jun - 20 Jun 2025),Models,baseline;linear,2025-06-16 09:20:00,2025-06-27 15:40:00,2025-06-27 15:40:00,,"2025-06-25 10:30:00;geetha.nallamada;0.83 MAE, against 1.54 for daily-naive. A regularised linear model on good features gets most of the way, which is worth knowing before anyone concludes the problem needed gradient boosting.","2025-06-27 15:35:00;divya.maram;And it is the model we can explain to a planner in one sentence, which will matter when we get to the dashboard.",,
+Story,DRG-55,10055,Evaluation harness,"One harness, one held-out window, one set of metrics, applied identically to
+every model in the ladder.
+
+* MAE, RMSE, MAPE, R squared
+* stress-alarm precision, recall and F1 once DRG-72 lands
+* results written to the run report; the comparison table regenerates from it
+* no model may report a metric computed its own way",,DRG-4,Done,Done,High,geetha.nallamada,sabitha.lingala,5,Sprint 12 (09 Jun - 20 Jun 2025),Models,evaluation,2025-06-16 09:25:00,2025-06-30 16:00:00,2025-06-30 16:00:00,,"2025-06-18 11:15:00;geetha.nallamada;Every model computing its own metrics is how you get a comparison table where the numbers are not comparable. One harness, and models only supply predictions.","2025-06-30 15:55:00;divya.maram;Accepted. The README table is generated from the run report, so it cannot drift from what the code produced.",,
+Task,DRG-56,10056,Guard MAPE against near-zero demand half-hours,"MAPE is unstable when the denominator approaches zero, which happens in the
+small hours at low-occupancy sites.
+
+* MAPE computed with a documented floor, and the excluded fraction reported
+* RMSE and MAE remain the primary metrics; MAPE is reported because
+  stakeholders ask for a percentage, with its limitation labelled",,DRG-4,Done,Done,Medium,geetha.nallamada,sabitha.lingala,2,Sprint 13 (23 Jun - 04 Jul 2025),Models,evaluation;honesty,2025-06-23 09:15:00,2025-06-30 12:20:00,2025-06-30 12:20:00,,"2025-06-30 12:15:00;geetha.nallamada;Reporting the excluded fraction next to the number. A percentage error that quietly drops its most difficult observations is a flattering statistic, and stakeholders will quote it.",,,
+Story,DRG-57,10057,"Train, validation and test window definition","Fix the windows once, in config, for the whole project.
+
+* training from the start of the usable series
+* validation window for early stopping and hyperparameter selection
+* 60-day chronological held-out test window, untouched until final reporting
+* the same windows for every model, enforced by the harness",,DRG-4,Done,Done,Medium,divya.maram,sabitha.lingala,3,Sprint 12 (09 Jun - 20 Jun 2025),Models,split,2025-06-16 09:30:00,2025-06-26 14:10:00,2025-06-26 14:10:00,,"2025-06-26 14:05:00;divya.maram;60 days of test gives roughly 2,880 half-hours per site, which is enough to say something about stress events rather than only about average error.",,,
+Bug,DRG-58,10058,Lag features computed across the train and test boundary,"Observed: test-window scores that did not degrade at all relative to
+validation, which is unusual for a chronological split.
+
+Diagnosis: features were engineered on the full series and split afterwards.
+The lag and rolling features for the first rows of the test window were
+therefore built from training data - which is legitimate - but the feature
+pipeline was also being fitted (scaler statistics) on the full series,
+including the test window. Standardisation had seen the future.
+
+Impact: none published. Found before the model ladder results were written up.
+
+Fix: fit every transform on the training window only and apply to the others.
+Assert it in a test that fits on train, then checks the scaler's statistics
+against a train-only recomputation.",,DRG-3,Done,Done,Highest,divya.maram,geetha.nallamada,5,Sprint 13 (23 Jun - 04 Jul 2025),Features,leakage;silent,2025-06-24 10:20:00,2025-07-04 15:30:00,2025-07-04 15:30:00,,"2025-06-24 10:40:00;geetha.nallamada;Second leakage bug in two months, and a subtler one than DRG-46 - the lags themselves were fine, it was the scaler that had seen the whole series. This is the failure mode of doing feature engineering before splitting.","2025-06-25 09:50:00;divya.maram;Restructuring so the split happens before any fitted transform, and the transform is fitted inside the pipeline rather than beside it. That makes the mistake structurally hard rather than something we have to remember.","2025-06-30 11:15:00;geetha.nallamada;Which is the right lesson. We have caught two of these by being suspicious of good numbers, and that will not scale - the third one will slip through unless it is impossible by construction.","2025-07-04 15:25:00;divya.maram;Fixed and asserted. Ridge moved from 0.79 to 0.83 MAE, which is the honest number."
+Story,DRG-59,10059,XGBoost forecasting model,"As the project
+I want a gradient boosted model as the primary forecaster
+So that the non-linear interactions between time, weather and recent demand
+are captured.
+
+* early stopping on the validation window, never on test
+* categorical handling for neighbourhood, so one model serves all sites
+* feature importance exported for cross-checking against SHAP later
+* same harness, same window, same metrics",,DRG-4,Done,Done,Highest,geetha.nallamada,sabitha.lingala,8,Sprint 14 (07 Jul - 18 Jul 2025),Models,xgboost;modelling,2025-07-07 09:20:00,2025-07-25 16:10:00,2025-07-25 16:10:00,,"2025-07-14 10:30:00;geetha.nallamada;One model across all four neighbourhoods with site as a feature, rather than four models. There is not enough data per site to justify four, and the shared model can borrow strength across them - which is a testable claim, so I will test it.",2025-07-21 11:20:00;divya.maram;Tested: the shared model beats per-site models on three of four sites and ties on the fourth. Worth recording in the notes because it is a question that will be asked again.,"2025-07-25 16:05:00;geetha.nallamada;0.70 MAE, 0.95 RMSE, R squared 0.986. Against daily-naive at 1.54 that is a substantial improvement, and against Ridge at 0.83 it is real but modest - which is the honest way to describe it.",
+Story,DRG-60,10060,Hyperparameter search,"Structured search over the XGBoost parameters, scored on the validation
+window with a time-aware split.
+
+* search space and the selected values recorded in the run report
+* the search never sees the test window
+* the improvement over default parameters reported, so the effort is
+  justified rather than assumed",,DRG-4,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 15 (21 Jul - 01 Aug 2025),Models,tuning,2025-07-28 09:20:00,2025-08-08 15:20:00,2025-08-08 15:20:00,,"2025-08-08 15:15:00;geetha.nallamada;Tuning bought about 0.04 MAE over sensible defaults. Recording that, because it is a useful counterweight to the instinct that more search is always worth it - the features did far more than the hyperparameters.",,,
+Story,DRG-61,10061,Rolling-origin cross-validation,"As the project
+I want the headline result validated across multiple time windows
+So that we know the test score is not a lucky split.
+
+* five expanding-window folds, each training on everything before its
+  validation window
+* per-fold and aggregate metrics reported
+* the fold range published alongside the headline number",,DRG-4,Done,Done,High,divya.maram,sabitha.lingala,5,Sprint 16 (04 Aug - 15 Aug 2025),Models,validation,2025-08-11 09:20:00,2025-08-22 16:00:00,2025-08-22 16:00:00,,2025-08-11 09:45:00;divya.maram;A single held-out window on a two-year series is one draw from a distribution. Five expanding folds tell us how much the answer moves depending on where you cut it.,"2025-08-22 15:55:00;geetha.nallamada;RMSE 0.74 to 0.95 across folds, with the headline test at 0.95 - so the headline sits at the pessimistic end of the range rather than the flattering one. That is the version to publish.",,
+Task,DRG-62,10062,Model comparison report,"The ladder in one table, generated from the run report: naive, Ridge, XGBoost
+and the sequence model, on MAE, RMSE, MAPE, R squared and stress-alarm F1.
+
+Ordered by MAE, with the naive baseline always shown, never omitted for
+looking bad.",,DRG-4,Done,Done,Medium,geetha.nallamada,sabitha.lingala,3,Sprint 16 (04 Aug - 15 Aug 2025),Models,reporting,2025-08-11 09:25:00,2025-08-29 15:10:00,2025-08-29 15:10:00,,"2025-08-29 15:05:00;geetha.nallamada;The baseline row stays in the table permanently. The moment it is dropped for being uninteresting, the table stops answering the only question that matters: is this better than what they do today?",,,
+Story,DRG-63,10063,Model artefact persistence and metadata,"As the platform
+I want every trained model saved with the context needed to reproduce it
+So that a forecast can be traced back to an artefact months later.
+
+* model binary, feature list, config hash, data hash, metrics, training window
+* a version identifier that later appears in API responses
+* loading a model validates that its feature list matches what is being fed to
+  it, and refuses rather than silently misaligning columns",,DRG-12,Done,Done,Medium,devendranath.singam,sabitha.lingala,5,Sprint 17 (18 Aug - 29 Aug 2025),MLOps,artefacts,2025-08-25 09:20:00,2025-09-05 15:40:00,2025-09-05 15:40:00,,"2025-09-02 10:20:00;devendranath.singam;The feature-list check on load is the one that will save someone. Feeding columns in a different order to a tree model produces predictions rather than an error, and they will look approximately reasonable.",2025-09-05 15:35:00;geetha.nallamada;Accepted. This is also the foundation the promotion gate sits on next year.,,
+Story,DRG-64,10064,PyTorch LSTM and GRU sequence models,"As the project
+I want a deep sequence model in the ladder
+So that we can say whether sequence learning adds anything over gradient
+boosting on this problem.
+
+* LSTM and GRU over a lookback window of past half-hours
+* same split, same harness, same metrics
+* optional dependency tier - the base install must not require torch",,DRG-4,Done,Done,Medium,geetha.nallamada,sabitha.lingala,8,Sprint 18 (01 Sep - 12 Sep 2025),Models,deep;optional,2025-09-08 09:20:00,2025-09-26 15:50:00,2025-09-26 15:50:00,,"2025-09-15 11:20:00;geetha.nallamada;Framing this as a question rather than an ambition: does sequence modelling beat XGBoost here? If it does not, that is a publishable finding and we stop, rather than spending a quarter tuning it into a tie.","2025-09-26 15:45:00;geetha.nallamada;It does not, on this data volume. Competitive but not better, and far more expensive to train and serve. Recorded as a finding and the ladder keeps XGBoost as primary.",,
+Bug,DRG-65,10065,PyTorch import fails on Windows without the MSVC runtime,"Observed: torch installs successfully from pip on a clean Windows machine and
+then raises an OSError on import - a DLL load failure.
+
+Impact: the deep model stage crashed the whole run-all on two of three
+Windows machines, including a stakeholder demo box. RAID risk 2, realised.
+
+Cause: the Windows torch wheels link against the Microsoft Visual C++
+redistributable, which is not installed by default and is not a pip
+dependency, so a successful install is no evidence that import will work.
+
+Fix, in two parts:
+* detect the failure at import and fall back to the torch-free sequence model
+  (DRG-66) rather than crashing the pipeline
+* document the redistributable in the README next to the deep tier install,
+  with the download link",,DRG-4,Done,Done,High,devendranath.singam,geetha.nallamada,3,Sprint 19 (15 Sep - 26 Sep 2025),Models;Platform,windows;dependencies;raid,2025-09-16 10:15:00,2025-09-24 14:20:00,2025-09-24 14:20:00,,2025-09-16 10:30:00;geetha.nallamada;Lost an hour to this before realising the install had succeeded and the import had not. pip reporting success is genuinely misleading here.,"2025-09-16 11:40:00;devendranath.singam;Known issue with the Windows wheels - they need the MSVC redistributable and it is not something pip can pull in. This was RAID risk 2 from January, so at least it was not a surprise.",2025-09-18 09:50:00;sabitha.lingala;Marking the risk as realised and mitigated rather than closing it quietly. The mitigation - graceful fallback plus a documented prerequisite - is the reusable part.,"2025-09-24 14:15:00;devendranath.singam;Fixed. The import is guarded, the fallback is automatic and reported in the run log, and the README says what to install. A missing optional dependency should degrade the run, not end it."
+Story,DRG-66,10066,Torch-free sequence model fallback,"As anyone without a working PyTorch install
+I want a neural sequence model that runs on scikit-learn alone
+So that the ladder is complete on a base install.
+
+* MLP over a flattened lookback window
+* same interface, same harness, so it slots into the ladder unchanged
+* selected automatically when torch cannot be imported, and the substitution
+  is stated in the run report rather than being silent",,DRG-4,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 19 (15 Sep - 26 Sep 2025),Models,fallback;models,2025-09-18 09:20:00,2025-09-30 15:30:00,2025-09-30 15:30:00,,"2025-09-25 10:40:00;geetha.nallamada;0.78 MAE, so it sits between Ridge and XGBoost. It was built as a fallback and it turns out to be a legitimate rung on the ladder, which is a better outcome than intended.",2025-09-30 15:25:00;devendranath.singam;And it is stated in the run report when it substitutes. A silent fallback would mean a comparison table where one row is secretly a different model than it claims.,,
+Task,DRG-67,10067,Publish the model ladder results,"Write up the ladder: what each model is, what it scored, and what the
+comparison means.
+
+The finding worth stating plainly: XGBoost more than halves the error of the
+operational baseline, and a regularised linear model gets most of the way.
+The problem is dominated by recent history and weekly seasonality, which is
+why relatively simple models do well.",,DRG-4,Done,Done,Medium,geetha.nallamada,sabitha.lingala,3,Sprint 20 (29 Sep - 10 Oct 2025),Docs,reporting;modelling,2025-09-29 09:15:00,2025-10-10 15:20:00,2025-10-10 15:20:00,,"2025-10-10 15:15:00;geetha.nallamada;Stating that simple models do well is not undermining the work - it is the finding. It tells a network operator that this is tractable with modest infrastructure, which is far more actionable than a marginal accuracy claim.",,,
+Story,DRG-68,10068,Percentile stress thresholds per neighbourhood,"As the analysis
+I want stress defined from each neighbourhood's own historical distribution
+So that sites are measurable without knowing their capacity.
+
+* threshold at a configurable percentile, default P95, per site
+* computed on the training window only - see DRG-69
+* thresholds published per site, with the underlying distribution, so the
+  definition is inspectable rather than a magic number",,DRG-5,Done,Done,High,geetha.nallamada,sabitha.lingala,5,Sprint 21 (13 Oct - 24 Oct 2025),Stress,stress;definitions,2025-10-13 09:20:00,2025-10-24 15:40:00,2025-10-24 15:40:00,,"2025-10-13 09:45:00;geetha.nallamada;The honest wording, which goes everywhere this number appears: this is not a capacity breach. We do not have ratings. It is the top 5% of a site's own history, and the interesting claim is how much more often that happens under electrification.",2025-10-24 15:35:00;divya.maram;Per site rather than global. A dense urban feeder and a suburban one have completely different distributions and a shared threshold would just rank sites by size.,,
+Bug,DRG-69,10069,Stress threshold computed on the full series including test,"Observed: stress-alarm F1 was suspiciously stable across every model,
+including the naive baseline.
+
+Diagnosis: the P95 threshold was computed over the entire series, test window
+included. Every model was being scored against a threshold derived partly
+from the data it was being tested on - a lookahead, and one that flatters all
+models equally, which is why it did not show up as an odd ranking.
+
+Impact: none published. Found while preparing the stress results for the Q4
+review.
+
+Fix: thresholds computed on the training window only, then applied unchanged
+to validation and test. Asserted in a test.",,DRG-5,Done,Done,High,geetha.nallamada,divya.maram,3,Sprint 22 (27 Oct - 07 Nov 2025),Stress,leakage;silent,2025-10-27 10:20:00,2025-11-04 14:30:00,2025-11-04 14:30:00,,"2025-10-27 10:40:00;divya.maram;Spotted it because the naive baseline's stress F1 was 0.85, which is high for a model that is just repeating yesterday. The threshold knowing about the test window was making the task easier for everyone.","2025-10-28 09:30:00;geetha.nallamada;Third leakage bug of the year, and the pattern is consistent: it is never the model, it is always something fitted on more data than it should have seen. Scaler, rolling window, now a threshold.","2025-10-30 11:15:00;geetha.nallamada;Proposing a rule rather than another fix: anything that is estimated from data - a scaler, a threshold, a percentile, a category encoding - is fitted on train and applied elsewhere, and there is a test for each one. Otherwise we will find the fourth in February.","2025-11-04 14:25:00;divya.maram;Rule adopted and written into the modelling notes. Thresholds now train-only, F1 numbers moved slightly and the ranking held."
+Story,DRG-70,10070,Stress event detection with a minimum duration,"As a planner
+I want stress reported as events rather than as isolated half-hours
+So that the output matches how the network is actually operated.
+
+* contiguous half-hours above threshold form one event
+* a configurable minimum duration, so a single spike is not an event
+* small gaps below threshold do not split one event into two
+* event start, end, duration and peak recorded",,DRG-5,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 22 (27 Oct - 07 Nov 2025),Stress,stress,2025-11-03 09:20:00,2025-11-14 15:30:00,2025-11-14 15:30:00,,"2025-11-07 10:30:00;geetha.nallamada;The gap-bridging rule matters more than it sounds. Demand oscillating around a threshold produces dozens of one-period events, which is noise dressed as a finding, and it would make the duration statistics meaningless.","2025-11-14 15:25:00;divya.maram;Both parameters are in config and reported with the results, so the sensitivity work next year can sweep them.",,
+Story,DRG-71,10071,Stress frequency and duration metrics,"The headline stress statistics per site and per scenario.
+
+* share of half-hours in stress
+* event count, mean and maximum duration
+* time-of-day and seasonal distribution of stress events
+* all computed from the event structure in DRG-70, not from raw exceedances",,DRG-5,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 23 (10 Nov - 21 Nov 2025),Stress,stress;metrics,2025-11-17 09:20:00,2025-11-28 15:20:00,2025-11-28 15:20:00,,"2025-11-26 11:15:00;divya.maram;Base case is 4.4% of half-hours in stress with a mean event duration of 2.2 hours. That is the number every electrification scenario will be compared against, so it is worth being precise about how it was computed.",,,
+Story,DRG-72,10072,"Stress-alarm precision, recall and F1","As the project
+I want forecasts judged on whether they predict stress, not only on error
+So that model selection reflects what the platform is for.
+
+* a forecast raises an alarm when the predicted half-hour exceeds the
+  threshold; the truth is whether the actual half-hour did
+* precision, recall and F1 per model, reported next to MAE
+* the asymmetry stated: a missed stress event costs more than a false alarm,
+  and the operating point can be tuned for that",,DRG-5,Done,Done,High,geetha.nallamada,sabitha.lingala,5,Sprint 23 (10 Nov - 21 Nov 2025),Stress,stress;evaluation,2025-11-17 09:25:00,2025-12-05 15:40:00,2025-12-05 15:40:00,,2025-11-20 10:20:00;geetha.nallamada;A model can improve MAE by getting the easy quiet half-hours slightly better while getting worse at the peaks. Without this metric we would select for the wrong thing and never know.,"2025-12-05 15:35:00;divya.maram;XGBoost at 0.90 F1, daily-naive at 0.85. A smaller gap than the MAE difference suggests, which is itself informative - the peaks are the recurrent, forecastable part.",,
+Story,DRG-73,10073,Per-household EV adoption sampling,"As the simulation
+I want EV adoption assigned to individual households, not applied as a
+uniform uplift
+So that diversity between households is preserved.
+
+* adoption rate as a scenario parameter; households sampled, not scaled
+* sampling weighted by household consumption, per the DRG-33 finding that
+  early adopters are not a random draw
+* the sampling assumption stated in every scenario output",,DRG-6,Done,Done,High,divya.maram,sabitha.lingala,5,Sprint 24 (24 Nov - 05 Dec 2025),Simulation,simulation;ev,2025-12-01 09:20:00,2025-12-12 15:30:00,2025-12-12 15:30:00,,"2025-12-03 10:40:00;divya.maram;Bottom-up rather than a percentage uplift on the aggregate. A uniform uplift assumes every household charges at the same time, which is the assumption that would make the whole result wrong in the direction of alarming.","2025-12-10 11:20:00;geetha.nallamada;And the consumption weighting is a real assumption with an effect, so it needs to be visible and sweepable in the sensitivity work rather than buried.",,
+Story,DRG-74,10074,EV charging profiles,"Half-hourly charging demand per EV household.
+
+* arrival time distribution and charge duration, not a fixed schedule
+* charger power as a parameter, with the resulting after-diversity maximum
+  demand reported per scenario
+* daily energy per vehicle reported, so the assumption can be sanity checked
+  against average UK mileage",,DRG-6,Done,Done,Medium,divya.maram,sabitha.lingala,8,Sprint 24 (24 Nov - 05 Dec 2025),Simulation,simulation;ev,2025-12-01 09:25:00,2025-12-19 15:40:00,2025-12-19 15:40:00,,"2025-12-15 10:30:00;divya.maram;Reporting kWh per car per day in every scenario summary. It comes out at 5.3, which is about 1,900 kWh a year and consistent with average UK car mileage - and that is the number a planner will check first to decide whether to trust the rest.","2025-12-19 15:35:00;geetha.nallamada;Publishing the auditable intermediate rather than only the headline is the right instinct. It invites the reader to check us, which is how the headline earns trust.",,
+Story,DRG-75,10075,Heat pump profiles driven by temperature,"Half-hourly heat pump demand per adopting household, driven by outdoor
+temperature rather than a fixed profile.
+
+* demand from heating degree hours and a configurable coefficient of
+  performance
+* COP varying with temperature - efficiency falls exactly when demand rises,
+  which is the whole reason heat pumps matter for peak
+* after-diversity maximum demand per heat pump reported per scenario",,DRG-6,Done,Done,High,divya.maram,sabitha.lingala,8,Sprint 25 (08 Dec - 19 Dec 2025),Simulation,simulation;heat-pump,2025-12-15 09:20:00,2026-01-09 15:50:00,2026-01-09 15:50:00,,"2025-12-17 11:15:00;divya.maram;Temperature-varying COP is the detail that makes this credible. A fixed COP understates the cold-snap peak, and the cold snap is the case the whole study is about.",2026-01-07 10:20:00;geetha.nallamada;This is also why DRG-48's lagged temperature work matters - the building thermal mass means the heat pump is still working the morning after the cold evening.,"2026-01-09 15:45:00;divya.maram;1.30 kW after-diversity per heat pump, which sits inside the range DNOs plan with. Published in every scenario summary.",
+Task,DRG-76,10076,Year-end report and 2026 plan,"Close 2025 with stakeholders and agree the 2026 shape.
+
+Delivered in 2025: data foundations and the synthetic path, consumption
+analysis, the feature set, the full model ladder, and statistical stress
+detection.
+
+2026: electrification scenarios, sensitivity, explainability, the dashboard
+and API, MLOps and Azure deployment.",,DRG-16,Done,Done,Medium,sabitha.lingala,sabitha.lingala,3,Sprint 25 (08 Dec - 19 Dec 2025),Governance,ceremony;reporting,2025-12-08 09:15:00,2025-12-19 16:20:00,2025-12-19 16:20:00,,"2025-12-19 16:10:00;sabitha.lingala;Twelve months in and the honest summary is that we spent the first quarter on data quality and never regretted it. Three of the year's five significant defects were leakage or data-integrity issues found by suspicion rather than by a test, and that is the pattern to fix in 2026.",2025-12-19 16:25:00;geetha.nallamada;Which is an argument for a dedicated QA role. Raising it as a resourcing item rather than something we absorb.,2026-01-05 09:30:00;sabitha.lingala;Raised. Noting here that it took until June to be filled.,
+Story,DRG-77,10077,Deployment target options and a costed recommendation,"Decide where DRG will run, with costs, before building for it.
+
+Compared: Azure Container Apps with Azure ML, App Service, and AKS.
+
+Recommendation: Container Apps for the API and dashboard, Azure ML for
+training and the managed endpoint. Scale to zero on non-production, which
+matters for a system that is used during working hours and idle at night.",,DRG-13,Done,Done,Medium,devendranath.singam,sabitha.lingala,5,Sprint 24 (24 Nov - 05 Dec 2025),Infrastructure,azure;spike,2025-12-01 09:30:00,2025-12-18 15:10:00,2025-12-18 15:10:00,,"2025-12-16 11:20:00;devendranath.singam;AKS is rejected on operational cost rather than capability. A Kubernetes cluster for a workload this size is a full-time job nobody on this team has, and Container Apps gives us scale-to-zero without it.","2025-12-18 15:05:00;sabitha.lingala;Costed estimate attached to the year-end report. Non-production comes to a level finance will not query, which is the practical test.",,
+Task,DRG-78,10078,Modelling notes as a handover document,"Write the modelling decisions down well enough that the other analyst can run
+and defend the stage.
+
+Covers: the split contract, why lags at 1/48/336, the leakage rules from
+DRG-46, DRG-58 and DRG-69, the model ladder and why XGBoost is primary, the
+stress definition and its limits, and the metrics and their caveats.
+
+Mitigation for the knowledge concentration risk raised in DRG-50.",,DRG-15,Done,Done,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 25 (08 Dec - 19 Dec 2025),Docs,docs;raid,2025-12-08 09:20:00,2025-12-23 14:40:00,2025-12-23 14:40:00,,2025-12-22 10:30:00;divya.maram;Read it end to end and ran the model stage from it without asking anything. That is the actual acceptance test for this ticket.,"2025-12-23 14:35:00;sabitha.lingala;Good. Closing the knowledge concentration risk down to watch, with the equivalent for the simulation stage due in Q1.",,
+Story,DRG-79,10079,Combined EV and heat pump scenario engine,"As a planner
+I want EV and heat pump adoption applied together to the same households
+So that the combined effect on peak is measurable rather than assumed.
+
+* a scenario is an adoption rate for each technology, applied per household
+* the two loads are superimposed on the household's own baseline demand
+* neighbourhood demand is re-aggregated from the modified households, never
+  scaled at the aggregate level",,DRG-6,Done,Done,Highest,divya.maram,sabitha.lingala,8,Sprint 27 (05 Jan - 16 Jan 2026),Simulation,simulation,2026-01-05 09:20:00,2026-01-23 15:40:00,2026-01-23 15:40:00,,"2026-01-07 10:30:00;divya.maram;Re-aggregating from households is the whole point. Two households with an EV and a heat pump do not both plug in at 18:00, and only a bottom-up model can express that.",2026-01-23 15:35:00;geetha.nallamada;Accepted. And it immediately produced a result that looked wrong - see DRG-80.,,
+Bug,DRG-80,10080,Diversity lost - combined peak came out additive,"Observed: the combined EV and heat pump scenario produced a peak amplification
+almost exactly equal to the sum of the two technologies applied separately.
+That is not what happens physically - the two loads peak at overlapping but
+not identical times.
+
+Diagnosis: the household profiles were being combined after each technology's
+demand had already been aggregated to the neighbourhood and re-peaked. The
+aggregation was applied twice and the second one destroyed the time offsets
+between households.
+
+Impact: none published. The additive figure would have overstated the peak by
+roughly 29 percentage points at the highest scenario, in the direction that
+makes the finding sound more alarming - which is the worst direction to be
+wrong in.
+
+Fix: superimpose per household at half-hourly resolution, aggregate once, at
+the end.",,DRG-6,Done,Done,Highest,divya.maram,geetha.nallamada,5,Sprint 27 (05 Jan - 16 Jan 2026),Simulation,simulation;silent,2026-01-13 10:20:00,2026-01-22 15:10:00,2026-01-22 15:10:00,,"2026-01-13 10:40:00;geetha.nallamada;The tell was that the combined number was suspiciously close to the sum. Physical systems very rarely add exactly, and when they do it usually means the model has lost the thing that would have made them not add.","2026-01-15 11:30:00;divya.maram;Confirmed - aggregating twice. Fixing it so aggregation happens exactly once, at the end, and adding an assertion that the combined peak is strictly below the sum of the individual peaks.","2026-01-19 09:45:00;geetha.nallamada;That assertion is a good one because it encodes a physical fact rather than a code expectation. If it ever fails, either the model is wrong or something genuinely surprising is happening, and both are worth stopping for.","2026-01-22 15:05:00;divya.maram;Fixed. EV alone at 80% gives +154%, heat pumps alone at 70% give +113%, together +237% rather than +267%. The 29 point gap is diversity, and it is now the headline rather than a caveat."
+Story,DRG-81,10081,Scenario sweep and peak amplification metrics,"Five scenarios from base to high adoption, with the metrics a planner needs.
+
+* peak amplification against base, energy growth, and the resulting stress
+  frequency and mean event duration
+* after-diversity maximum demand per EV and per heat pump printed in every
+  scenario summary
+* results written to the run report so the published table regenerates",,DRG-6,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 28 (19 Jan - 30 Jan 2026),Simulation,simulation;metrics,2026-01-26 09:20:00,2026-02-06 15:30:00,2026-02-06 15:30:00,,2026-02-03 10:20:00;divya.maram;Printing ADMD in every summary rather than in an appendix. It is the number a DNO planner will check against their own planning assumptions to decide whether to believe the rest of the table.,"2026-02-06 15:25:00;geetha.nallamada;1.20 kW per EV and 1.30 kW per heat pump, both inside the range used in UK planning practice. That is the credibility check passed.",,
+Story,DRG-82,10082,Stress under electrification scenarios,"Apply the DRG-68 thresholds - fixed at each site's historical P95 - to the
+simulated scenario demand.
+
+The thresholds do not move with the scenario. The question is how much more
+often a neighbourhood exceeds what used to be its top 5%, which is only
+meaningful if the bar stays where it was.",,DRG-5,Done,Done,High,geetha.nallamada,sabitha.lingala,5,Sprint 28 (19 Jan - 30 Jan 2026),Stress,stress;simulation,2026-01-26 09:25:00,2026-02-13 15:50:00,2026-02-13 15:50:00,,2026-01-28 09:50:00;geetha.nallamada;Holding the threshold at the historical value is the crux. Recomputing P95 under each scenario would define stress away - the top 5% is always 5% - and produce the reassuring answer that nothing changes.,"2026-02-13 15:45:00;divya.maram;Base 4.4% of half-hours in stress, rising to 46.8% at the highest scenario. Roughly ten times more often, with mean event duration going from 2.2 to 6.9 hours.",2026-02-16 09:30:00;geetha.nallamada;The duration change may matter more than the frequency to an operator. A two-hour event is manageable; a seven-hour one covers the whole evening peak and leaves no recovery window.,
+Task,DRG-83,10083,Q1 2026 planning and RAID review,"Replan for 2026 and review risks.
+
+* simulation closing, replay and sensitivity next
+* QA resourcing still open, four months after it was raised
+* new risk: the dashboard and API have no consumer yet, so we are building
+  the interface before validating the workflow with a planner",,DRG-16,Done,Done,Medium,sabitha.lingala,sabitha.lingala,2,Sprint 27 (05 Jan - 16 Jan 2026),Governance,raid;ceremony,2026-01-05 09:15:00,2026-01-16 15:20:00,2026-01-16 15:20:00,,"2026-01-16 15:10:00;sabitha.lingala;Raising the interface risk deliberately. We are about to spend two quarters building a dashboard for a user we have described rather than met, which is a pattern that ends with a beautiful tool nobody opens.","2026-01-19 10:20:00;geetha.nallamada;Agreed. Mitigation: get a network planner in front of the scenario results before the dashboard design is fixed, even if what we show them is a notebook.",,
+Story,DRG-84,10084,Scenario reporting artefacts,"The figures and tables that carry the electrification finding: peak
+amplification by scenario, the diversity gap, stress frequency and duration,
+and the load shape overlay showing where in the day the amplification lands.
+
+All regenerated by run-all, all written to artifacts.",,DRG-6,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 29 (02 Feb - 13 Feb 2026),Simulation,reporting,2026-02-09 09:20:00,2026-02-20 15:10:00,2026-02-20 15:10:00,,"2026-02-18 11:15:00;divya.maram;The load shape overlay is the most persuasive of these. It shows the evening peak growing and widening rather than just a bigger number, and that is what makes the duration finding land.",,,
+Story,DRG-85,10085,Near-real-time replay engine,"As an operator
+I want historical half-hours streamed at accelerated wall-clock speed
+So that the system can be demonstrated and tested as if it were live.
+
+* configurable acceleration - one half-hour of history per second
+* each step produces a forecast, a stress evaluation and an explanation
+* driven by event time from the data, not by the clock - see DRG-87
+* a replayed window reproduces exactly the output it produced before",,DRG-9,Done,Done,High,devendranath.singam,sabitha.lingala,8,Sprint 30 (16 Feb - 27 Feb 2026),Streaming,streaming;replay,2026-02-16 09:20:00,2026-03-06 16:00:00,2026-03-06 16:00:00,,2026-02-18 10:30:00;devendranath.singam;Replay is the only way to test the operational path without waiting for real time to pass. It has to be deterministic or it is a demo rather than a test.,"2026-03-06 15:55:00;geetha.nallamada;Accepted. Two runs over the same window produce byte-identical output, which means the streaming path is now assertable.",,
+Story,DRG-86,10086,Carbon intensity feed,"Live and historical grid carbon intensity from a key-free public API, so
+demand and stress can be read alongside the carbon cost of meeting it.
+
+* same caching and degradation contract as the weather feed (DRG-41)
+* regional where the API supports it, national otherwise, and the page says
+  which it is showing",,DRG-9,Done,Done,Medium,devendranath.singam,sabitha.lingala,5,Sprint 30 (16 Feb - 27 Feb 2026),Streaming,external;carbon,2026-02-23 09:20:00,2026-03-06 15:20:00,2026-03-06 15:20:00,,2026-03-04 10:40:00;devendranath.singam;Stating national versus regional on the page. It is a small honesty that stops someone quoting a national average as if it were their substation.,,,
+Bug,DRG-87,10087,Replay windows driven by wall clock rather than event time,"Observed: replaying the same window twice produced slightly different stress
+event boundaries.
+
+Cause: the rolling feature windows inside the replay loop were built from the
+wall-clock time of processing rather than the event time of the data. A slow
+step let a window advance further than it should have.
+
+Impact: the replay path was non-deterministic and therefore untestable, and
+the difference was small enough to look like noise rather than a defect.
+
+Fix: every window and every timestamp inside replay derives from the event
+time carried by the record. Wall clock controls only the pacing of the loop.
+Assert identical output across two runs of the same window.",,DRG-9,Done,Done,High,devendranath.singam,divya.maram,5,Sprint 30 (16 Feb - 27 Feb 2026),Streaming,streaming;determinism,2026-02-27 10:20:00,2026-03-10 14:40:00,2026-03-10 14:40:00,,"2026-02-27 10:35:00;divya.maram;Noticed because two replays of the same day disagreed on when an event ended. A one-period difference, which is exactly the size that gets dismissed as noise.",2026-03-02 09:40:00;devendranath.singam;Confirmed. Wall clock had leaked into the window logic. This is the same lesson as the training-time leakage bugs in a different costume: something that should be derived from the data was derived from the environment.,2026-03-10 14:35:00;devendranath.singam;Fixed and asserted. The pacing is the only thing the clock controls now.,
+Story,DRG-88,10088,External feed degradation and reporting,"No external feed may be load-bearing.
+
+* a failed or rate-limited call falls back to cached data, then to a
+  documented default, and records which of the three was used
+* the run report and the dashboard both state when a feed was unavailable
+* a degraded run is still a valid run, and is never silently presented as a
+  fully-fed one",,DRG-9,Done,Done,Medium,devendranath.singam,sabitha.lingala,5,Sprint 31 (02 Mar - 13 Mar 2026),Streaming,resilience,2026-03-09 09:20:00,2026-03-20 15:30:00,2026-03-20 15:30:00,,2026-03-18 11:20:00;devendranath.singam;The three-level fallback with provenance recorded is the important part. A cached value silently substituted for a live one is how a demo shows yesterday's weather as if it were today's.,2026-03-20 15:25:00;sabitha.lingala;Closing the external dependency risk in the RAID log on the back of this. It moves from a delivery risk to a documented operational behaviour.,,
+Task,DRG-89,10089,Simulation handover notes,"The equivalent of DRG-78 for the simulation stage: adoption sampling and why
+it is consumption-weighted, the EV and heat pump profile assumptions, the
+diversity result and how DRG-80 was found, and the ADMD sanity checks.
+
+Second half of the knowledge concentration mitigation from DRG-50.",,DRG-15,Done,Done,Medium,divya.maram,sabitha.lingala,3,Sprint 31 (02 Mar - 13 Mar 2026),Docs,docs;raid,2026-03-09 09:25:00,2026-03-24 14:20:00,2026-03-24 14:20:00,,"2026-03-23 10:15:00;geetha.nallamada;Ran the scenario sweep from these notes without asking Divya anything, which is the acceptance test we used last time.",2026-03-24 14:15:00;sabitha.lingala;Knowledge concentration risk now closed rather than watched. Both critical stages are documented well enough to be operated by the other analyst.,,
+Story,DRG-90,10090,Sensitivity sweep framework,"As the project
+I want to sweep the assumptions and see how the conclusions move
+So that we can say which assumptions the findings actually depend on.
+
+* sweep any config parameter across a range, re-running the affected stages
+* parameters in scope: adoption rates, charger power, heat pump COP, the
+  stress percentile, and the event duration rules
+* results tabulated so one assumption's effect is readable in isolation",,DRG-7,Done,Done,Medium,geetha.nallamada,sabitha.lingala,8,Sprint 32 (16 Mar - 27 Mar 2026),Analysis,sensitivity,2026-03-23 09:20:00,2026-04-03 16:00:00,2026-04-03 16:00:00,,"2026-03-25 10:20:00;geetha.nallamada;Sweeping the stress percentile itself is the one people forget. If the entire finding changes between P90 and P95, then the finding is about our choice of percentile rather than about electrification.",,,
+Story,DRG-91,10091,Sensitivity of stress frequency and duration,"Objective 5 delivered: how stress frequency and mean event duration respond to
+each assumption, across all four neighbourhoods.
+
+Reported as the change in output per unit change in assumption, so the
+assumptions can be ranked by how much they matter.",,DRG-7,Done,Done,High,geetha.nallamada,sabitha.lingala,5,Sprint 33 (30 Mar - 10 Apr 2026),Analysis,sensitivity,2026-04-06 09:20:00,2026-04-17 15:40:00,2026-04-17 15:40:00,,"2026-04-14 11:15:00;geetha.nallamada;Adoption rate dominates everything else by a wide margin. Charger power and COP matter within plausible ranges but do not change the direction or the order of magnitude, and the stress percentile shifts the absolute numbers without changing the ratio between scenarios.","2026-04-17 15:35:00;divya.maram;Which is the reassuring version of this result. The conclusion is about electrification, not about our parameter choices.",,
+Task,DRG-92,10092,Publish which assumptions the conclusions depend on,"Write up the sensitivity findings in the form a planner can use.
+
+The claim we can defend: the ratio between scenarios is robust; the absolute
+stress frequency depends on the percentile chosen; and everything depends on
+the adoption rate, which is the one number we are not forecasting and should
+not pretend to.",,DRG-7,Done,Done,Medium,geetha.nallamada,sabitha.lingala,3,Sprint 34 (13 Apr - 24 Apr 2026),Docs,sensitivity;honesty,2026-04-13 09:15:00,2026-04-24 14:30:00,2026-04-24 14:30:00,,"2026-04-24 14:25:00;geetha.nallamada;Saying plainly that we do not forecast adoption is important. DRG tells you what happens if adoption reaches a level; it does not tell you whether it will, and conflating those two is how a scenario tool gets quoted as a prediction.",,,
+Story,DRG-93,10093,SHAP global explanations,"Objective 6: explain the primary model's forecasts.
+
+* SHAP over the XGBoost model on the test window
+* global driver ranking with each feature's share of total attribution
+* cross-checked against the model's own feature importances - they should
+  broadly agree, and a disagreement is worth investigating rather than
+  ignoring",,DRG-8,Done,Done,Medium,geetha.nallamada,sabitha.lingala,8,Sprint 34 (13 Apr - 24 Apr 2026),Explain,xai;shap,2026-04-20 09:20:00,2026-05-08 15:50:00,2026-05-08 15:50:00,,"2026-05-05 10:30:00;geetha.nallamada;lag_336 at 39%, lag_1 at 27%, lag_48 at 7.6%, time of day at 4%. That matches the autocorrelation analysis from DRG-36 fifteen months ago, which is a satisfying consistency check across two completely independent methods.",2026-05-08 15:45:00;divya.maram;And it validates the feature design decision retrospectively. The weekly lag was the right thing to build first.,,
+Story,DRG-94,10094,SHAP during stress periods,"The same attribution, restricted to half-hours that are actually in stress.
+
+The operationally interesting question is whether stress is driven by
+different factors than normal demand. If it is, the alarm needs a different
+explanation; if it is not, that is reassuring and worth stating.",,DRG-8,Done,Done,High,geetha.nallamada,sabitha.lingala,5,Sprint 35 (27 Apr - 08 May 2026),Explain,xai;stress,2026-05-04 09:20:00,2026-05-15 15:30:00,2026-05-15 15:30:00,,"2026-05-13 11:20:00;geetha.nallamada;Same drivers, but the lag terms take a larger share during stress - lag_336 holds at 39%, lag_1 rises to 29%, lag_48 to 10.7%, and time of day falls. High-demand half-hours are more strongly recurrent than ordinary ones.",2026-05-15 15:25:00;divya.maram;Which is the useful operational sentence: the stressful periods are the predictable ones. That is what makes them manageable rather than merely alarming.,,
+Bug,DRG-95,10095,SHAP values computed on scaled features and reported as raw,"Observed: SHAP attributions for temperature were an order of magnitude
+smaller than the lag features, which did not match the model's own importance
+ranking.
+
+Cause: explanations were computed on the standardised feature matrix but
+labelled and plotted with the raw feature names and units, so contributions
+were not comparable across features with different original scales.
+
+Impact: the temperature driver looked negligible when it is not. Caught
+before publication.
+
+Fix: attribute in the model's feature space and report contributions as a
+share of total absolute attribution, which is scale-free and comparable.",,DRG-8,Done,Done,High,geetha.nallamada,divya.maram,3,Sprint 36 (11 May - 22 May 2026),Explain,xai;silent,2026-05-11 10:20:00,2026-05-20 14:40:00,2026-05-20 14:40:00,,"2026-05-11 10:35:00;divya.maram;Flagged it because the SHAP ranking disagreed with the XGBoost feature importances, and DRG-93 said explicitly that a disagreement is worth investigating. That check earned its keep.","2026-05-20 14:35:00;geetha.nallamada;Fixed by reporting shares rather than absolute contributions. Also means the numbers are comparable between models, which will matter when the registry holds more than one.",,
+Story,DRG-96,10096,Dashboard shell and chart theme,"As an operator
+I want one application with a page per question
+So that the analysis is usable without running Python.
+
+* Streamlit multipage shell, neighbourhood and date range selected once and
+  respected everywhere
+* a single chart theme: fixed colour per neighbourhood across all pages,
+  sequential ramps for magnitude only, no dual axes
+* every page states the as-of date and the data source - real or synthetic",,DRG-11,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 35 (27 Apr - 08 May 2026),Dashboard,dashboard;design-system,2026-04-27 09:20:00,2026-05-15 16:10:00,2026-05-15 16:10:00,,"2026-04-29 10:15:00;divya.maram;Theme before the first chart. The rule that matters most here is fixed colour per neighbourhood - four sites across six pages, and if the colours shuffle the reader has to relearn the legend every time.","2026-05-14 11:30:00;geetha.nallamada;The 'real or synthetic' badge is not optional. Someone will screenshot a synthetic run into a planning document otherwise, and the numbers are plausible enough that nobody would catch it.",,
+Story,DRG-97,10097,Demand and forecast page,"The default view: actual demand, the forecast, the stress threshold and the
+detected stress events for the selected neighbourhood and window.
+
+* forecast error summarised for the visible window, not just overall
+* stress events shaded, with duration on hover
+* the model version behind the forecast shown on the page",,DRG-11,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 36 (11 May - 22 May 2026),Dashboard,dashboard,2026-05-11 09:20:00,2026-05-29 15:40:00,2026-05-29 15:40:00,,"2026-05-27 10:40:00;divya.maram;Error for the visible window rather than the headline test figure. A planner looking at a cold week wants to know how the model did that week, and the overall number can hide a bad one.",,,
+Task,DRG-98,10098,Prepare QA onboarding,"Everything in place before the QA analyst starts on 15 June, so week one is
+work rather than access requests.
+
+* accounts, repository access, environment runbook
+* a written first-week goal: run the pipeline, then write down what is not
+  covered
+* the modelling and simulation handover notes as reading material",,DRG-16,Done,Done,Medium,sabitha.lingala,sabitha.lingala,2,Sprint 37 (25 May - 05 Jun 2026),Governance,onboarding,2026-06-01 09:15:00,2026-06-12 15:20:00,2026-06-12 15:20:00,,"2026-06-01 09:40:00;sabitha.lingala;Six months after it was raised at the year-end review. Recording the delay because the cost is visible: five of the defects since January were silent, and a QA perspective would have caught at least the SHAP scaling one sooner.","2026-06-12 15:15:00;devendranath.singam;Runbook dry-run from a clean machine. run-all from a fresh clone works with no dataset and no keys, which is the whole point of the DRG-23 decision paying off eighteen months later.",,
+Task,DRG-99,10099,QA onboarding - Neha Chauhan,"First week for the QA analyst joining 15 June 2026.
+
+* environment up, full pipeline run end to end
+* walk through the stage contract, the leakage rules and the stress definition
+* deliverable: a written gap analysis of what the current tests do not cover",,DRG-17,Done,Done,Medium,neha.chauhan,sabitha.lingala,3,Sprint 38 (08 Jun - 19 Jun 2026),Quality,onboarding,2026-06-15 09:30:00,2026-06-26 16:00:00,2026-06-26 16:00:00,,"2026-06-16 11:20:00;neha.chauhan;run-all worked first time from the runbook, on synthetic data, with no credentials. That is rarer than it should be and it made the first day useful rather than administrative.","2026-06-19 14:30:00;neha.chauhan;Read the modelling notes. The striking thing is that of the eight significant defects on this project, seven produced a plausible wrong number rather than a failure. That shapes what I should be testing: agreement between stages, not behaviour of functions.","2026-06-26 15:50:00;neha.chauhan;Gap analysis done. No coverage at all on the simulation, the API contract, or anything checking that a model artefact matches the feature spec it claims. The third one is the quiet risk - the DRG-63 check exists but nothing tests that it fires.",2026-06-26 16:10:00;geetha.nallamada;That last point is a good catch and it is exactly the kind of thing we could not see from inside. Raising it into the gate work.
+Story,DRG-100,10100,Test strategy and per-stage regression scope,"As the team
+I want a written statement of what is asserted at each stage
+So that 'covered' means something specific.
+
+* per stage - ingestion, features, models, stress, simulation, replay, API,
+  dashboard - what is asserted, what is deliberately not, and why
+* the leakage rules from DRG-46, DRG-58 and DRG-69 restated as standing
+  assertions rather than remembered incidents
+* gaps listed as tickets rather than as prose",,DRG-17,Done,Done,Medium,neha.chauhan,sabitha.lingala,5,Sprint 39 (22 Jun - 03 Jul 2026),Quality,testing;strategy,2026-06-22 09:20:00,2026-07-03 15:40:00,2026-07-03 15:40:00,,2026-06-30 10:20:00;neha.chauhan;Turning the three leakage incidents into one standing rule with a test each: anything estimated from data is fitted on train only. That was already written in the modelling notes as a rule; it just was not enforced anywhere.,2026-07-03 15:35:00;geetha.nallamada;Which is the difference between a lesson and a control. We wrote the rule down in November and still had to remember it.,,
+Story,DRG-101,10101,FastAPI service and forecast endpoint,"As another system
+I want forecasts over HTTP
+So that DRG is consumable without running its dashboard.
+
+* FastAPI with OpenAPI docs
+* forecast endpoint: neighbourhood, horizon, returns the series with the
+  stress threshold and predicted stress flags
+* health and readiness endpoints that distinguish 'running' from 'has a model'
+* every response carries the model version and an as-of timestamp",,DRG-10,Done,Done,Medium,devendranath.singam,sabitha.lingala,8,Sprint 38 (08 Jun - 19 Jun 2026),API,api,2026-06-08 09:20:00,2026-06-26 15:50:00,2026-06-26 15:50:00,,"2026-06-10 10:30:00;devendranath.singam;Readiness separate from health. A container that is up but has no model loaded should not receive traffic, and conflating the two is how you serve 500s to a load balancer that thinks everything is fine.","2026-06-24 11:15:00;neha.chauhan;Reviewed the contract before the implementation was finished, which was the right order. Asked for the error shape to be specified too - a documented success response and an undocumented failure response is half a contract.",,
+Story,DRG-102,10102,"Stress, scenario and explanation endpoints","* stress endpoint: current and historical stress state for a neighbourhood
+* scenario endpoint: run an adoption scenario and return peak amplification,
+  energy growth and stress statistics
+* explanation endpoint: SHAP contributions for a specific forecast
+* scenario runs are bounded and reject parameter values outside the ranges
+  the simulation was validated over",,DRG-10,Done,Done,Medium,devendranath.singam,sabitha.lingala,8,Sprint 39 (22 Jun - 03 Jul 2026),API,api,2026-06-29 09:20:00,2026-07-17 15:40:00,2026-07-17 15:40:00,,"2026-07-08 10:40:00;devendranath.singam;Rejecting out-of-range scenario parameters rather than extrapolating. A 100% adoption request would return a number, and that number would be outside anything the simulation was sanity-checked against.","2026-07-15 14:20:00;neha.chauhan;Tested the boundaries. It refuses cleanly with a message naming the valid range, which is what an integrator needs rather than a stack trace.",,
+Bug,DRG-103,10103,API responses omitted the model version,"Observed: the forecast endpoint returned values with no indication of which
+model produced them, despite DRG-63 making the version available.
+
+Impact: a forecast retrieved through the API could not be reproduced or
+attributed later. For a system whose output feeds planning decisions, that is
+the difference between an auditable number and an anecdote.
+
+Fix: model version, artefact hash and as-of timestamp on every response from
+every endpoint, and a contract test that fails if any endpoint omits them.",,DRG-10,Done,Done,High,devendranath.singam,neha.chauhan,3,Sprint 40 (06 Jul - 17 Jul 2026),API,api;traceability,2026-07-06 11:20:00,2026-07-14 14:30:00,2026-07-14 14:30:00,,2026-07-06 11:35:00;neha.chauhan;Raising it against the contract rather than the code - the OpenAPI schema promised a version field and the responses did not carry one. Those disagreeing is the actual defect.,"2026-07-09 09:50:00;devendranath.singam;Fair, and the contract test is the right fix. Doing it endpoint by endpoint would leave the next endpoint to remember.","2026-07-14 14:25:00;neha.chauhan;Contract test asserts it across every route, including ones added later. Verified.",
+Story,DRG-104,10104,Scenario comparison page,"The page that carries the project's headline finding.
+
+* scenarios side by side: peak amplification, energy growth, stress frequency
+  and mean duration
+* the load shape overlay showing where in the day the amplification lands
+* the diversity result stated on the page - EV alone, heat pumps alone, and
+  the combined figure that is 29 points below their sum
+* ADMD per device shown, so the assumptions are auditable from the interface",,DRG-11,Done,Done,High,divya.maram,sabitha.lingala,8,Sprint 39 (22 Jun - 03 Jul 2026),Dashboard,dashboard;simulation,2026-06-22 09:25:00,2026-07-10 16:00:00,2026-07-10 16:00:00,,2026-07-01 10:20:00;divya.maram;Putting the diversity number on the page rather than in a tooltip. It is the most defensible thing we have found and it is also the thing most likely to be lost if the page only shows the scary total.,"2026-07-10 15:55:00;geetha.nallamada;Accepted. A planner can now see the amplification, where in the day it lands, and the per-device assumptions behind it, in one view.",,
+Story,DRG-105,10105,Model registry,"As the platform
+I want every trained model recorded with its metrics and provenance
+So that 'the current model' is a fact rather than a convention.
+
+* versioned entries with metrics, training window, config and data hashes
+* a pointer to the current production model
+* history retained, so a regression can be compared against what it replaced",,DRG-12,Done,Done,Medium,devendranath.singam,sabitha.lingala,5,Sprint 40 (06 Jul - 17 Jul 2026),MLOps,mlops;registry,2026-07-06 09:20:00,2026-07-17 15:20:00,2026-07-17 15:20:00,,2026-07-16 10:30:00;devendranath.singam;Built on the DRG-63 metadata rather than inventing a second format. The registry is an index over artefacts that already describe themselves.,,,
+Story,DRG-106,10106,Model promotion gate,"As the project
+I want a model to have to earn promotion
+So that a regression cannot reach the API by being the most recent thing
+trained.
+
+Gate criteria, all against the current production model on the same window:
+* MAE no worse by more than a configured tolerance
+* stress-alarm F1 no worse at all
+* the feature spec matches what the serving path will supply
+* the model beats the seasonal naive baseline - a floor, not a formality
+
+A failed gate blocks promotion and reports which criterion failed.",,DRG-12,Done,Done,High,devendranath.singam,sabitha.lingala,8,Sprint 40 (06 Jul - 17 Jul 2026),MLOps,mlops;gate,2026-07-06 09:25:00,2026-07-24 15:50:00,2026-07-24 15:50:00,,"2026-07-08 10:20:00;geetha.nallamada;Stress F1 with no tolerance at all, unlike MAE. The whole platform exists to detect stress, and trading that away for average error is precisely the trade we must not make silently.",2026-07-20 11:30:00;neha.chauhan;Added the feature-spec check Neha raised in onboarding - the artefact declares its features and the gate asserts the serving path supplies exactly those. It caught a column ordering difference on the first run.,"2026-07-24 15:45:00;devendranath.singam;Gate live. And it blocked a promotion within a fortnight, which is the point - see DRG-107.",
+Bug,DRG-107,10107,A retrained model improved MAE and got worse at stress,"Observed: a scheduled retrain produced a model with MAE 0.68 against the
+incumbent's 0.70, and the promotion gate blocked it.
+
+Diagnosis: not a defect in the model or the gate - the gate working. The new
+model's stress-alarm F1 was 0.87 against the incumbent's 0.90. It had improved
+on the quiet half-hours, which are the bulk of the data, and got worse at the
+peaks, which are the point.
+
+Cause: the extra training data included an unusually mild period, shifting the
+model toward the middle of the distribution.
+
+Outcome: promotion refused, incumbent retained, and the retrain window
+adjusted to weight recent peak periods more heavily.",,DRG-12,Done,Done,High,geetha.nallamada,devendranath.singam,5,Sprint 41 (20 Jul - 31 Jul 2026),MLOps,mlops;gate,2026-07-27 10:20:00,2026-08-07 15:10:00,2026-08-07 15:10:00,,"2026-07-27 10:35:00;devendranath.singam;Filing this as a bug so the reasoning is recorded somewhere findable, though the system behaved correctly. Without the gate we would have shipped a better-looking model that was worse at the job.",2026-07-29 09:40:00;geetha.nallamada;This is the clearest possible justification for putting stress F1 in the gate with zero tolerance. A single headline metric would have promoted it and nobody would have noticed until an event was missed.,"2026-08-05 11:15:00;neha.chauhan;Adding a regression test that constructs exactly this case - better MAE, worse F1 - and asserts the gate refuses it. Otherwise a future refactor could relax the gate and nothing would catch it.",2026-08-07 15:05:00;geetha.nallamada;Retrain window reweighted and the next candidate passed on both. Keeping this ticket linked from the MLOps epic as the worked example.
+Story,DRG-108,10108,SHAP explanation page,"Global drivers, drivers during stress, and per-forecast explanations for a
+selected half-hour.
+
+* contributions as shares, per DRG-95, so features are comparable
+* the stress-period ranking shown next to the global one, since the
+  comparison is the finding
+* plain-language note that these are model attributions, not causes",,DRG-11,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 41 (20 Jul - 31 Jul 2026),Dashboard,dashboard;xai,2026-07-20 09:20:00,2026-07-31 15:30:00,2026-07-31 15:30:00,,2026-07-29 10:40:00;divya.maram;The attribution-not-causation note is on the page rather than in documentation. Someone will otherwise read 'lag_336 drives 39% of demand' as a statement about the world instead of about the model.,,,
+Story,DRG-109,10109,Regression pack: data and features,"* 48 half-hours per household per UTC day, including across both clock changes
+* no forward filling in aggregation; gaps propagate as nulls and are counted
+* every fitted transform is fitted on train only - the standing rule from
+  DRG-100, asserted per transform
+* no feature correlates with the target above the leakage threshold
+* two runs on the same seed produce identical processed artefacts",,DRG-17,Done,Done,Medium,neha.chauhan,sabitha.lingala,5,Sprint 40 (06 Jul - 17 Jul 2026),Quality,testing;data,2026-07-06 09:30:00,2026-07-24 16:10:00,2026-07-24 16:10:00,,"2026-07-14 10:20:00;neha.chauhan;The clock-change case is a fixture that spans both October and March, so the assertion is exercised rather than theoretical. It is cheap and it covers the defect that started this project's data quality work.",2026-07-24 16:05:00;divya.maram;Determinism assertion is the one I am most glad of. It is the property everything else quietly depends on.,,
+Bug,DRG-110,10110,Dashboard served one neighbourhood's data under another's label,"Observed: switching neighbourhood in the sidebar updated the title and the
+threshold line but not the demand series, until the page was reloaded.
+
+Impact: a chart showing site A's demand labelled as site B. Visually plausible,
+completely wrong, and the kind of thing that gets screenshotted into a
+planning document.
+
+Cause: the cached data loader was keyed on the date range only, so a
+neighbourhood change was a cache hit.
+
+Fix: every cache key includes the full selection. Plus a smoke test that
+switches neighbourhood and asserts the rendered series changes.",,DRG-11,Done,Done,High,divya.maram,neha.chauhan,3,Sprint 41 (20 Jul - 31 Jul 2026),Dashboard,dashboard;silent,2026-07-21 11:15:00,2026-07-29 14:20:00,2026-07-29 14:20:00,,"2026-07-21 11:30:00;neha.chauhan;Found it by clicking through the sites in order and noticing the peak did not move. Two of the four sites have similar magnitudes, so on those it is genuinely undetectable by eye.","2026-07-23 09:45:00;divya.maram;A cache key missing part of its input, which is the same class of defect as the API missing its version field - the identity of the thing was incomplete.","2026-07-29 14:15:00;neha.chauhan;Fixed and covered. The smoke test asserts the data changes, not just that the page renders.",
+Story,DRG-111,10111,Azure infrastructure as Bicep,"The full footprint as code: storage, container registry, key vault,
+monitoring, Container Apps and an Azure ML workspace.
+
+* module per concern, parameter file per environment
+* no secrets in parameters - key vault references throughout
+* managed identity between services rather than connection strings
+* non-production scales to zero",,DRG-13,Done,Done,Medium,devendranath.singam,sabitha.lingala,13,Sprint 41 (20 Jul - 31 Jul 2026),Infrastructure,azure;bicep,2026-07-20 09:25:00,2026-08-14 15:40:00,2026-08-14 15:40:00,,"2026-07-30 10:30:00;devendranath.singam;Bicep over Terraform here specifically because of the ML workspace. The first-party templates for AML are simply better maintained, and this estate is entirely Azure so the portability argument does not apply.","2026-08-12 11:20:00;devendranath.singam;Managed identity throughout. No connection strings in configuration means no connection strings to leak, and it removes the rotation problem entirely.",2026-08-14 15:35:00;sabitha.lingala;Deploys clean into the non-production subscription. Recording in the RAID log that the shared environment risk from January is now closed.,
+Story,DRG-112,10112,Azure ML training job,"Training runs as an AML job rather than on a laptop.
+
+* environment definition pinned, job definition in the repository
+* the same pipeline code as local - no separate cloud training path
+* metrics and artefacts logged to the workspace and to the registry",,DRG-13,Done,Done,Medium,devendranath.singam,sabitha.lingala,8,Sprint 42 (03 Aug - 14 Aug 2026),Infrastructure,azure;aml,2026-08-03 09:20:00,2026-08-21 15:30:00,2026-08-21 15:30:00,,2026-08-19 10:40:00;devendranath.singam;Same code path locally and in AML. A separate cloud training script is how the two silently diverge and the cloud model stops matching what was validated.,,,
+Story,DRG-113,10113,Managed online endpoint for scoring,"Serve the promoted model from an AML managed online endpoint.
+
+* deployment and endpoint definitions in the repository
+* only a model that passed the gate may be deployed
+* scoring script shares the feature construction code with training
+* endpoint verified against a known request and expected response before
+  traffic is shifted",,DRG-13,In Progress,,Medium,devendranath.singam,sabitha.lingala,8,Sprint 43 (17 Aug - 28 Aug 2026),Infrastructure,azure;aml,2026-08-17 09:20:00,2026-08-17 09:20:00,,,2026-08-26 11:15:00;devendranath.singam;The scoring path shares feature construction with training rather than reimplementing it. Training-serving skew from two copies of the same logic is the classic way a deployed model quietly stops matching its evaluation.,2026-09-07 14:30:00;devendranath.singam;Endpoint deploys and scores. Verification script and the traffic-shift step are what remain.,,
+Task,DRG-114,10114,Infrastructure cost pass,"Cost the environments and bring non-production down to a defensible level.
+
+* Container Apps scaled to zero outside working hours
+* AML compute on low-priority for training, deallocating when idle
+* storage lifecycle rules to cool tier
+* the estimate committed alongside the Bicep so a change that raises it is
+  visible in the diff",,DRG-13,Done,Done,Medium,devendranath.singam,sabitha.lingala,3,Sprint 43 (17 Aug - 28 Aug 2026),Infrastructure,azure;cost,2026-08-17 09:25:00,2026-08-28 15:10:00,2026-08-28 15:10:00,,2026-08-20 10:20:00;devendranath.singam;The compute that was going to cost the most was AML idling. Low-priority with aggressive deallocation takes training cost down to something that is genuinely rounding error for a nightly job.,"2026-08-28 15:05:00;sabitha.lingala;Attached to the August stakeholder report. Non-production comes in under the threshold that would need a conversation, which is the practical test.",,
+Task,DRG-115,10115,BA onboarding - Amit Shinde,"First week for the business analyst joining 24 August 2026.
+
+* environment, repository and dashboard access
+* walk through the proposal objectives and where each is answered in the code
+* introductions to the network planning, sustainability and academic
+  stakeholders
+* deliverable: the gap between what the BRD promised and what exists",,DRG-18,Done,Done,Medium,amit.shinde,sabitha.lingala,3,Sprint 43 (17 Aug - 28 Aug 2026),Governance,onboarding,2026-08-24 09:30:00,2026-09-04 15:40:00,2026-09-04 15:40:00,,"2026-08-25 15:20:00;amit.shinde;Started with the objectives table in the README, which maps each proposal objective to the module that answers it. That is an unusually good front door - most projects make you infer that mapping.","2026-08-28 11:30:00;amit.shinde;Halfway through the stakeholder conversations. The recurring theme is not doubt about the numbers, it is that different groups want different cuts - planners want per-substation, sustainability wants carbon, the academic partner wants the method. One dashboard is currently trying to be all three.","2026-09-04 15:35:00;amit.shinde;Gap list done. Nine items: four already answered by something they had not seen, three genuine gaps, and two that are out of scope by design - power flow and adoption forecasting - which need saying clearly rather than being left open.",2026-09-04 16:00:00;geetha.nallamada;Those last two are exactly the non-goals from DRG-31. Good to have them confirmed as live stakeholder expectations rather than hypothetical ones.
+Story,DRG-116,10116,Regression pack: models and stress,"* the model ladder runs and every model reports on the same window
+* the naive baseline is present in every comparison
+* stress thresholds are derived from the training window only
+* stress events respect the minimum duration and gap-bridging rules
+* a model that regresses on stress F1 fails the gate (the DRG-107 case)",,DRG-17,Done,Done,Medium,neha.chauhan,sabitha.lingala,5,Sprint 42 (03 Aug - 14 Aug 2026),Quality,testing;models,2026-08-03 09:30:00,2026-08-21 15:50:00,2026-08-21 15:50:00,,"2026-08-14 10:30:00;neha.chauhan;Asserting the baseline is present in the comparison, not just that it scores well. The failure mode is someone dropping it from the table for looking bad, and then no result is anchored to anything.",,,
+Story,DRG-117,10117,Replay page,"The operational view: replay a historical window at accelerated speed with
+live forecast, stress state and explanation updating as it advances.
+
+* replay controls, speed, and a clear indication that this is replay of
+  historical data rather than a live feed
+* stress alarms surfaced as they would be to an operator",,DRG-11,Done,Done,Medium,divya.maram,sabitha.lingala,5,Sprint 42 (03 Aug - 14 Aug 2026),Dashboard,dashboard;streaming,2026-08-10 09:20:00,2026-08-28 15:20:00,2026-08-28 15:20:00,,2026-08-26 10:40:00;divya.maram;Labelling it as replay prominently. A convincing operational view of historical data is exactly the thing that gets mistaken for a live system in a demo.,,,
+Story,DRG-118,10118,Business requirements refresh,"Bring the BRD in line with what was built, and separate what changed from
+what was learned.
+
+* each original requirement marked delivered, changed, or out of scope, with
+  the reason
+* the non-goals restated in business language, since two stakeholder groups
+  are currently expecting them
+* the findings that were not requirements - diversity, the recurrence of
+  stress periods - added as delivered value",,DRG-18,In Progress,,Medium,amit.shinde,sabitha.lingala,5,Sprint 44 (31 Aug - 11 Sep 2026),Docs,ba;requirements,2026-08-31 09:20:00,2026-08-31 09:20:00,,,2026-09-03 10:30:00;amit.shinde;Most of this is not gap-filling. The document describes an ambition and the code has since answered it more precisely - the refresh is mostly replacing intentions with findings.,"2026-09-08 11:20:00;amit.shinde;Two thirds through. The diversity result is the clearest example: nobody asked for it, and it is arguably the most planning-relevant thing here.",,
+Story,DRG-119,10119,Requirements traceability matrix,"Each requirement traced to the module that implements it, the artefact that
+evidences it, the dashboard view that shows it and the test that covers it.
+
+Gaps appear as empty cells rather than absent rows.",,DRG-18,In Progress,,Medium,amit.shinde,sabitha.lingala,5,Sprint 44 (31 Aug - 11 Sep 2026),Docs,ba;traceability,2026-08-31 09:25:00,2026-08-31 09:25:00,,,"2026-09-07 14:20:00;amit.shinde;Twenty-one of twenty-six requirements traced. Two have a dashboard view and no test, which Neha is picking up, and one has a test and no view - the sensitivity results are computed and reported but there is nowhere to look at them, which is DRG-122.",2026-09-08 09:50:00;neha.chauhan;Taking the two untested ones into the simulation pack this sprint.,,
+Story,DRG-120,10120,Regression pack: simulation and scenarios,"The last uncovered stage, and the one carrying the headline finding.
+
+* adoption sampling honours the requested rate within tolerance
+* the combined peak is strictly below the sum of individual peaks - the
+  DRG-80 assertion, as a permanent control
+* ADMD per device stays inside the validated range for every scenario
+* scenario output is deterministic for a given seed
+* stress thresholds do not move between scenarios",,DRG-17,In Progress,,Medium,neha.chauhan,sabitha.lingala,8,Sprint 44 (31 Aug - 11 Sep 2026),Quality,testing;simulation,2026-08-31 09:30:00,2026-08-31 09:30:00,,,"2026-09-02 10:20:00;neha.chauhan;The combined-below-additive assertion is the one I care most about, because it encodes a physical fact rather than a coding expectation. If it ever fails, something real has changed.","2026-09-08 15:30:00;neha.chauhan;Sampling, determinism and threshold stability are in and passing. ADMD range checks are what remain.",,
+Story,DRG-121,10121,UAT pack and stakeholder sign-off,"* scripted scenarios per stakeholder group in business language
+* expected results derived from the requirements and the modelling notes, not
+  from the current dashboard output
+* a defect log with a defined route back into the backlog
+* written sign-off per group, recorded against the traceability matrix",,DRG-17,To Do,,Medium,neha.chauhan,sabitha.lingala,5,Sprint 44 (31 Aug - 11 Sep 2026),Quality,uat;testing,2026-09-07 09:20:00,2026-09-07 09:20:00,,,"2026-09-08 15:45:00;neha.chauhan;Expected results come from the requirements rather than from what the dashboard currently shows. Deriving them from the dashboard tests that it agrees with itself, which it always will.",2026-09-08 16:00:00;amit.shinde;I will facilitate and take sign-offs into the matrix. Network planning first - they have the most at stake in the scenario numbers.,,
+Story,DRG-122,10122,Sensitivity page,"Surface the sensitivity results, which are currently computed and reported to
+artefacts but have nowhere to be seen.
+
+* how stress frequency and duration move with each assumption
+* the assumptions ranked by how much they matter
+* the statement that adoption rate dominates, and that DRG does not forecast
+  adoption",,DRG-11,To Do,,Medium,divya.maram,sabitha.lingala,5,Sprint 44 (31 Aug - 11 Sep 2026),Dashboard,dashboard;sensitivity,2026-09-07 09:25:00,2026-09-07 09:25:00,,,"2026-09-07 14:30:00;amit.shinde;Flagging this from the traceability work - the sensitivity requirement is delivered in code and invisible in the product, which is the one row with a test and no view.",,,
+Story,DRG-123,10123,Scheduled retrain,"A scheduled AML job that retrains, evaluates and offers the model to the
+promotion gate.
+
+* runs on a schedule; promotion is never automatic, the gate decides
+* a blocked promotion notifies rather than failing silently
+* the incumbent stays serving until something better passes",,DRG-13,In Progress,,Medium,devendranath.singam,sabitha.lingala,5,Sprint 44 (31 Aug - 11 Sep 2026),Infrastructure,azure;mlops,2026-08-31 09:35:00,2026-08-31 09:35:00,,,"2026-09-04 11:20:00;devendranath.singam;Retrain is scheduled, promotion is gated. Automating the retrain is safe; automating the promotion would mean the DRG-107 model shipped itself at 3am.",,,
+Task,DRG-124,10124,Monitoring and alerting with a named owner,"Application and model monitoring, routed to someone who is expected to act.
+
+* endpoint availability and latency; job success and failure
+* forecast error tracked against the evaluation baseline, so drift is visible
+* deliberately blocked on agreeing an owner and a response expectation -
+  routing to a rota that does not exist is worse than not alerting",,DRG-13,To Do,,Medium,devendranath.singam,sabitha.lingala,5,Sprint 44 (31 Aug - 11 Sep 2026),Infrastructure,azure;monitoring;blocked,2026-09-07 09:30:00,2026-09-07 09:30:00,,,"2026-09-07 09:50:00;devendranath.singam;The infrastructure creates the action group already. Nothing routes to it, and that is deliberate rather than unfinished.","2026-09-08 10:15:00;sabitha.lingala;This is an organisational decision, not a technical one, and it is on the October steering agenda. Recording it in the RAID log as the largest open operational gap.",,
+Story,DRG-125,10125,Operator runbook panel,"What an operator should do when a stress alarm fires: what the alarm means,
+what it does not mean, what to check, and where the number came from.
+
+The alarm is only useful if the person receiving it knows what action it
+implies. Written with the network planning group rather than for them.",,DRG-11,To Do,,Medium,geetha.nallamada,sabitha.lingala,5,Sprint 44 (31 Aug - 11 Sep 2026),Dashboard,dashboard;operations,2026-09-07 09:35:00,2026-09-07 09:35:00,,,"2026-09-08 11:50:00;geetha.nallamada;'What it does not mean' is the important half. A stress alarm is not a capacity breach, and an operator acting as though it were would be acting on a claim we have never made.",,,
+Story,DRG-126,10126,Probabilistic forecasts with prediction intervals,"Move from point forecasts to quantiles, so a planner sees the range rather
+than a single number.
+
+Why it has waited: the point forecast had to be trustworthy first, and the
+stress framing is currently binary. Intervals change what the alarm means and
+that is a stakeholder conversation, not just a modelling change.
+
+Trigger: the first time someone asks how confident the forecast is - which
+has now happened twice.",,DRG-4,To Do,,Medium,geetha.nallamada,sabitha.lingala,13,,Models,backlog;modelling,2026-05-18 10:20:00,2026-05-18 10:20:00,,,"2026-05-18 10:35:00;geetha.nallamada;Raising it at the point of deciding not to do it, with the trigger written down.",2026-09-08 10:40:00;amit.shinde;Asked twice in my stakeholder conversations. Moving it up the backlog for the October planning.,,
+Story,DRG-127,10127,Network topology and power flow integration,"Integrate real network topology and transformer ratings, so stress can be
+expressed against actual capacity rather than statistically.
+
+Why it has waited: it is the stated non-goal of the current system, and it
+needs DNO asset data we do not have and may not be able to obtain.
+
+What it would unlock: 'this feeder exceeds its rating' rather than 'this
+neighbourhood is above its own P95'. A different and stronger claim.
+
+This is a data access negotiation before it is an engineering task.",,DRG-5,To Do,,Medium,sabitha.lingala,sabitha.lingala,13,,Stress,backlog;scope,2026-02-24 10:30:00,2026-02-24 10:30:00,,,"2026-02-24 10:45:00;sabitha.lingala;Recording it as a backlog item rather than leaving it as a non-goal only, so the boundary is visible as a choice with a route past it rather than as a permanent limitation.","2026-09-04 16:10:00;amit.shinde;Two stakeholder groups expect this. Worth being explicit with them that it is out of scope by design today, and what it would take.",,
+Story,DRG-128,10128,Scale beyond four neighbourhoods,"Generalise from four calibrated neighbourhoods to an arbitrary set.
+
+Why it has waited: four sites are enough to demonstrate the method and small
+enough to reason about. Scaling changes the training strategy - one shared
+model may not hold across a hundred heterogeneous sites.
+
+Trigger: a partner supplying data for more sites.",,DRG-4,To Do,,Medium,geetha.nallamada,sabitha.lingala,13,,Models,backlog;scale,2026-06-08 10:15:00,2026-06-08 10:15:00,,,"2026-06-08 10:30:00;geetha.nallamada;The shared-model finding from DRG-59 was tested on four sites. It is not safe to assume it holds at a hundred, and that is the first thing to check rather than the last.",,,
+Story,DRG-129,10129,Drift detection on the live feed,"Detect data that is structurally valid and quietly different: a meter
+population change, a shift in the demand distribution, weather data that
+stops updating.
+
+Why it has waited: the quality checks catch broken data; drift needs a
+baseline history to compare against, and the deployed system has only just
+started producing one.",,DRG-12,To Do,,Medium,neha.chauhan,sabitha.lingala,8,,Quality,backlog;monitoring,2026-08-11 11:20:00,2026-08-11 11:20:00,,,2026-08-11 11:35:00;neha.chauhan;Raising it now so the run history is retained in a shape that makes it possible later. Discovering in six months that we discarded the baseline would be annoying.,,,
+Story,DRG-130,10130,Shadow deployment for candidate models,"Run a candidate model alongside the incumbent on live traffic, comparing
+predictions without serving them.
+
+Why it has waited: the gate compares on a held-out window, which is adequate
+while there is one endpoint and a nightly retrain. Shadow evaluation earns its
+place when a candidate passes the gate and we still want evidence before
+switching.
+
+Related: DRG-107 is exactly the case where shadow evidence would have been
+informative.",,DRG-12,To Do,,Medium,devendranath.singam,sabitha.lingala,8,,MLOps,backlog;mlops,2026-08-07 15:20:00,2026-08-07 15:20:00,,,2026-08-07 15:30:00;devendranath.singam;Raised off the back of the blocked promotion. The gate made the right call on the evidence it had; shadow traffic would have told us whether it was right in production too.,,,

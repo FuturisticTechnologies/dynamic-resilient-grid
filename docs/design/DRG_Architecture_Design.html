@@ -1,0 +1,2401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DRG - Architecture and Design Document</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm 18mm 18mm; }
+  @page :first { margin: 0; }
+
+  :root {
+    --blue:#2a78d6; --orange:#eb6834; --aqua:#1baf7a; --yellow:#eda100;
+    --violet:#4a3aa7; --red:#d03b3b; --green:#0ca30c;
+    --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --surface:#fcfcfb; --plane:#f4f6f9;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 10.2pt; line-height: 1.5; color: var(--ink);
+    margin: 0; counter-reset: sec fig tbl;
+  }
+
+  /* ---------- title page ---------- */
+  .cover {
+    height: 297mm; padding: 36mm 24mm 20mm 24mm; break-after: page;
+    background: linear-gradient(160deg, #f7fafe 0%, #eef4fb 55%, #e6eef8 100%);
+    display: flex; flex-direction: column;
+  }
+  .cover .rule { height: 6px; width: 96px; background: var(--blue); margin-bottom: 22mm; }
+  .cover .eyebrow { font-size: 10pt; letter-spacing: .16em; text-transform: uppercase;
+                    color: var(--blue); font-weight: 600; margin-bottom: 6mm; }
+  .cover h1 { font-size: 30pt; line-height: 1.15; margin: 0 0 6mm 0; font-weight: 650; letter-spacing: -.4px; }
+  .cover h2 { font-size: 14.5pt; font-weight: 400; color: var(--ink2); margin: 0 0 18mm 0; line-height: 1.4; }
+  .cover .spacer { flex: 1; }
+  .cover .meta { border-top: 1px solid var(--grid); padding-top: 6mm; font-size: 9.6pt; color: var(--ink2); }
+  .cover .meta table { width: 100%; border-collapse: collapse; }
+  .cover .meta td { padding: 1.6mm 0; vertical-align: top; }
+  .cover .meta td:first-child { width: 34mm; color: var(--muted); }
+
+  /* ---------- headings ---------- */
+  h2.sec {
+    counter-increment: sec; counter-reset: sub fig tbl;
+    font-size: 15pt; margin: 9mm 0 3mm 0; padding-bottom: 2mm;
+    border-bottom: 2px solid var(--blue); break-after: avoid; break-inside: avoid;
+  }
+  h2.sec::before { content: counter(sec) ". "; color: var(--blue); }
+  h3 { counter-increment: sub; font-size: 11.6pt; margin: 6mm 0 2mm 0; break-after: avoid; color: var(--ink); }
+  h3::before { content: counter(sec) "." counter(sub) "  "; color: var(--blue); font-weight: 600; }
+  h4 { font-size: 10.4pt; margin: 4mm 0 1.5mm 0; break-after: avoid; color: var(--ink2); }
+  p { margin: 0 0 2.6mm 0; text-align: justify; hyphens: auto; }
+  ul, ol { margin: 0 0 3mm 0; padding-left: 5.5mm; }
+  li { margin-bottom: 1.2mm; }
+  code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 9pt;
+         background: #f1f3f6; padding: .3mm 1.1mm; border-radius: 2px; }
+  a { color: var(--blue); text-decoration: none; }
+  strong { font-weight: 650; }
+
+  /* ---------- tables ---------- */
+  table.t { width: 100%; border-collapse: collapse; margin: 3mm 0 4mm 0;
+            font-size: 9.2pt; break-inside: avoid; }
+  table.t caption { caption-side: top; text-align: left; font-size: 9pt; color: var(--ink2);
+                    padding-bottom: 1.6mm; counter-increment: tbl; }
+  table.t caption::before { content: "Table " counter(sec) "." counter(tbl) " - "; color: var(--blue); font-weight: 600; }
+  table.t th { background: #eef3fa; text-align: left; font-weight: 600; color: var(--ink);
+               border-bottom: 1.5px solid var(--blue); padding: 1.8mm 2mm; }
+  table.t td { border-bottom: 1px solid var(--grid); padding: 1.6mm 2mm; vertical-align: top; }
+  table.t tr:nth-child(even) td { background: #fafbfc; }
+  table.t td.c, table.t th.c { text-align: center; }
+  .id { font-family: Consolas, monospace; font-size: 8.6pt; white-space: nowrap; color: var(--violet); font-weight: 600; }
+
+  /* ---------- callouts ---------- */
+  .note, .warn, .ok {
+    border-left: 3px solid var(--blue); background: #f4f8fd; padding: 2.6mm 3.4mm;
+    margin: 3mm 0; font-size: 9.4pt; break-inside: avoid; border-radius: 0 3px 3px 0;
+  }
+  .warn { border-left-color: var(--orange); background: #fdf4ef; }
+  .ok   { border-left-color: var(--aqua);   background: #f0faf6; }
+  .note b, .warn b, .ok b { display: block; margin-bottom: 1mm; }
+
+  /* ---------- figures ---------- */
+  figure { margin: 4mm 0 5mm 0; break-inside: avoid; text-align: center; }
+  figure svg { max-width: 100%; height: auto; }
+  figcaption { counter-increment: fig; font-size: 8.8pt; color: var(--ink2);
+               margin-top: 2mm; text-align: center; }
+  figcaption::before { content: "Figure " counter(sec) "." counter(fig) " - "; color: var(--blue); font-weight: 600; }
+  .uml text { font-family: "Segoe UI", sans-serif; }
+  .pagebreak { break-before: page; }
+  .avoid { break-inside: avoid; }
+
+  /* ---------- toc ---------- */
+  .toc { font-size: 9.6pt; }
+  .toc .l1 { margin: 1.8mm 0 0 0; font-weight: 600; }
+  .toc .l2 { margin: .6mm 0 0 7mm; color: var(--ink2); }
+  .lede { font-size: 10.8pt; color: var(--ink2); border-left: 3px solid var(--blue);
+          padding-left: 4mm; margin: 0 0 5mm 0; }
+</style>
+</head>
+<body>
+
+<!-- ==================== COVER ==================== -->
+<div class="cover">
+  <div class="rule"></div>
+  <div class="eyebrow">Architecture &amp; Design Document</div>
+  <h1>Dynamic Resilient Grid (DRG)</h1>
+  <h2>AI-driven local electricity demand forecasting and<br>electrification stress analysis for UK urban networks</h2>
+
+  <svg width="150" height="150" viewBox="0 0 150 150" aria-hidden="true">
+    <circle cx="75" cy="75" r="70" fill="none" stroke="#2a78d6" stroke-width="1" opacity=".25"/>
+    <circle cx="75" cy="75" r="56" fill="none" stroke="#2a78d6" stroke-width="1" opacity=".35"/>
+    <polyline points="18,105 34,96 48,74 60,84 72,44 84,62 96,36 110,58 132,50"
+              fill="none" stroke="#2a78d6" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+    <line x1="14" y1="56" x2="136" y2="56" stroke="#d03b3b" stroke-width="1.6" stroke-dasharray="5 4"/>
+    <text x="140" y="53" font-size="9" fill="#d03b3b" text-anchor="end" font-family="Segoe UI">P95 stress threshold</text>
+    <circle cx="96" cy="36" r="5.5" fill="#d03b3b"/>
+    <circle cx="72" cy="44" r="4.5" fill="#eb6834"/>
+  </svg>
+
+  <div class="spacer"></div>
+  <div class="meta">
+    <table>
+      <tr><td>Document</td><td><strong>DRG-SAD-001</strong> &nbsp; Software Architecture &amp; Design Document</td></tr>
+      <tr><td>Version</td><td>1.0 (Baseline)</td></tr>
+      <tr><td>Status</td><td>Issued for review</td></tr>
+      <tr><td>Date</td><td>28 August 2026</td></tr>
+      <tr><td>Classification</td><td>Internal - contains no personal or licensed smart-meter data</td></tr>
+      <tr><td>Companion</td><td>DRG-BRD-001 Business Requirements Document</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== DOC CONTROL ==================== -->
+<h2 class="sec">Document Control</h2>
+
+<table class="t">
+  <caption>Revision history</caption>
+  <thead><tr><th style="width:16mm">Version</th><th style="width:24mm">Date</th><th>Description</th><th style="width:32mm">Author</th></tr></thead>
+  <tbody>
+    <tr><td>0.1</td><td>2026-08-20</td><td>Initial draft: scope, context, component decomposition</td><td>Solution Architect</td></tr>
+    <tr><td>0.2</td><td>2026-08-25</td><td>UML model added; electrification simulation design reviewed and recalibrated</td><td>Solution Architect</td></tr>
+    <tr><td>0.3</td><td>2026-08-27</td><td>Azure deployment architecture; observability and governance sections</td><td>Cloud Architect</td></tr>
+    <tr><td>1.0</td><td>2026-08-28</td><td>MLOps promotion gate and blue/green model release added; baselined</td><td>Solution Architect</td></tr>
+  </tbody>
+</table>
+
+<table class="t">
+  <caption>Approvals required</caption>
+  <thead><tr><th style="width:44mm">Role</th><th>Responsibility for this document</th><th style="width:26mm">Signature</th></tr></thead>
+  <tbody>
+    <tr><td>Project Sponsor</td><td>Confirms the architecture serves the business case in DRG-BRD-001</td><td></td></tr>
+    <tr><td>Network Planning Lead (DNO)</td><td>Confirms the stress definition and scenario parameters are fit for planning use</td><td></td></tr>
+    <tr><td>Data Protection Officer</td><td>Confirms compliance with the UK Data Service End User Licence</td><td></td></tr>
+    <tr><td>Cloud Platform Owner</td><td>Confirms the Azure landing-zone design and identity model</td><td></td></tr>
+    <tr><td>Academic Supervisor</td><td>Confirms methodological soundness against the project proposal</td><td></td></tr>
+  </tbody>
+</table>
+
+<h3>Related documents</h3>
+<table class="t">
+  <caption>References</caption>
+  <thead><tr><th style="width:30mm">Reference</th><th>Title</th></tr></thead>
+  <tbody>
+    <tr><td class="id">DRG-BRD-001</td><td>Business Requirements Document (companion to this document)</td></tr>
+    <tr><td class="id">REF-01</td><td>UK Data Service Study 7857 - Low Carbon London smart-meter trial, half-hourly consumption 2011-2014</td></tr>
+    <tr><td class="id">REF-02</td><td>National Grid ESO Carbon Intensity API - <code>api.carbonintensity.org.uk</code></td></tr>
+    <tr><td class="id">REF-03</td><td>Open-Meteo ERA5 reanalysis archive and forecast API</td></tr>
+    <tr><td class="id">REF-04</td><td>OpenWeatherMap Current Weather Data API</td></tr>
+    <tr><td class="id">REF-05</td><td>Repository documentation: <code>README.md</code>, <code>docs/ARCHITECTURE.md</code>, <code>docs/AZURE.md</code></td></tr>
+  </tbody>
+</table>
+
+<h3>Glossary of terms used in this document</h3>
+<table class="t">
+  <caption>Definitions and abbreviations</caption>
+  <thead><tr><th style="width:34mm">Term</th><th>Definition</th></tr></thead>
+  <tbody>
+    <tr><td><strong>ADMD</strong></td><td>After Diversity Maximum Demand - the peak electrical demand attributable to one connected customer or device once fleet coincidence is accounted for. The standard planning quantity used by UK DNOs.</td></tr>
+    <tr><td><strong>DNO</strong></td><td>Distribution Network Operator - the licensed operator of a regional low- and medium-voltage electricity network.</td></tr>
+    <tr><td><strong>Half-hour period</strong></td><td>The settlement granularity of GB electricity data; 48 periods per day, indexed 0-47.</td></tr>
+    <tr><td><strong>Heating degrees (HDD)</strong></td><td>Degrees Celsius by which outside temperature falls below a balance-point temperature; the driver of electrified heating demand.</td></tr>
+    <tr><td><strong>LV feeder</strong></td><td>Low-voltage circuit supplying a cluster of domestic properties from a distribution substation.</td></tr>
+    <tr><td><strong>Neighbourhood</strong></td><td>In DRG, a fixed-size aggregation of smart-meter households used as the unit of analysis in place of a physical LV feeder, which the source data does not identify.</td></tr>
+    <tr><td><strong>Stress period</strong></td><td>A half-hour in which aggregated neighbourhood demand equals or exceeds the statistically defined threshold (P95 of that neighbourhood's own history).</td></tr>
+    <tr><td><strong>Peak amplification</strong></td><td>Percentage increase in the maximum half-hourly demand of a neighbourhood under an electrification scenario, relative to the un-electrified base case.</td></tr>
+    <tr><td><strong>Champion model</strong></td><td>The forecasting model currently selected for serving, chosen on held-out test performance.</td></tr>
+    <tr><td><strong>Promotion gate</strong></td><td>The automated quality decision that determines whether a retrained model may replace the deployed one.</td></tr>
+    <tr><td><strong>SHAP</strong></td><td>SHapley Additive exPlanations - a game-theoretic method attributing a model prediction to its input features.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== TOC ==================== -->
+<div class="pagebreak"></div>
+<h2 class="sec">Contents</h2>
+<div class="toc">
+  <div class="l1">1 &nbsp; Introduction</div>
+  <div class="l2">1.1 Purpose &nbsp;&middot;&nbsp; 1.2 Intended audience &nbsp;&middot;&nbsp; 1.3 How to read this document</div>
+  <div class="l1">2 &nbsp; Project Overview</div>
+  <div class="l2">2.1 Problem statement &nbsp;&middot;&nbsp; 2.2 Aim &nbsp;&middot;&nbsp; 2.3 Objectives &nbsp;&middot;&nbsp; 2.4 Research questions &nbsp;&middot;&nbsp; 2.5 What the system is not</div>
+  <div class="l1">3 &nbsp; Scope</div>
+  <div class="l2">3.1 In scope &nbsp;&middot;&nbsp; 3.2 Out of scope &nbsp;&middot;&nbsp; 3.3 Assumptions &nbsp;&middot;&nbsp; 3.4 Constraints</div>
+  <div class="l1">4 &nbsp; Stakeholders and System Actors</div>
+  <div class="l1">5 &nbsp; System Context</div>
+  <div class="l1">6 &nbsp; Architecture Overview</div>
+  <div class="l2">6.1 Architectural drivers &nbsp;&middot;&nbsp; 6.2 Layered view &nbsp;&middot;&nbsp; 6.3 Design principles &nbsp;&middot;&nbsp; 6.4 Key decisions</div>
+  <div class="l1">7 &nbsp; UML Model</div>
+  <div class="l2">7.1 Use case &nbsp;&middot;&nbsp; 7.2 Component &nbsp;&middot;&nbsp; 7.3 Domain class model &nbsp;&middot;&nbsp; 7.4 Sequence: scenario evaluation</div>
+  <div class="l2">7.5 Sequence: near-real-time replay &nbsp;&middot;&nbsp; 7.6 Sequence: model release &nbsp;&middot;&nbsp; 7.7 Activity: pipeline</div>
+  <div class="l2">7.8 State machine: stress severity &nbsp;&middot;&nbsp; 7.9 State machine: model lifecycle &nbsp;&middot;&nbsp; 7.10 Deployment</div>
+  <div class="l1">8 &nbsp; Data Architecture</div>
+  <div class="l1">9 &nbsp; Machine Learning Architecture</div>
+  <div class="l1">10 &nbsp; Security, Governance and Compliance</div>
+  <div class="l1">11 &nbsp; Non-Functional Requirements and Their Realisation</div>
+  <div class="l1">12 &nbsp; Technology Stack</div>
+  <div class="l1">13 &nbsp; Risks, Limitations and Future Work</div>
+  <div class="l1">Appendix A &nbsp; Repository Map &nbsp;&middot;&nbsp; Appendix B &nbsp; Service Interface Reference</div>
+</div>
+
+<!-- ==================== 1. INTRODUCTION ==================== -->
+<div class="pagebreak"></div>
+<h2 class="sec">Introduction</h2>
+
+<p class="lede">This document describes the architecture and detailed design of the Dynamic Resilient
+Grid (DRG) framework: a demand-side analytics system that forecasts neighbourhood-level electricity
+demand, detects statistically defined stress periods, and quantifies how electric-vehicle and
+heat-pump adoption amplifies peak demand on UK urban distribution networks.</p>
+
+<h3>Purpose</h3>
+<p>The purpose of this document is to define an implementable, reviewable architecture that satisfies
+the business requirements set out in DRG-BRD-001. It records the structure of the system, the
+responsibilities of each component, the interactions between them, the design decisions taken and
+the reasoning behind those decisions, so that the system can be built, assured, operated and
+extended by parties other than its original author.</p>
+
+<h3>Intended audience</h3>
+<table class="t">
+  <caption>Audience and the sections most relevant to each</caption>
+  <thead><tr><th style="width:44mm">Reader</th><th>Primary interest</th><th style="width:26mm">Sections</th></tr></thead>
+  <tbody>
+    <tr><td>Project sponsor / supervisor</td><td>That the design addresses the stated problem and scope</td><td>1-3, 13</td></tr>
+    <tr><td>Network planning stakeholders</td><td>The stress definition, scenario assumptions and what the outputs mean</td><td>2, 5, 7.4, 9</td></tr>
+    <tr><td>Software and data engineers</td><td>Component decomposition, interfaces, data contracts</td><td>6-8, App. A-B</td></tr>
+    <tr><td>Machine learning engineers</td><td>Feature design, validation protocol, model lifecycle and release control</td><td>9, 7.6, 7.9</td></tr>
+    <tr><td>Cloud platform and security reviewers</td><td>Deployment topology, identity model, data governance</td><td>7.10, 10, 11</td></tr>
+  </tbody>
+</table>
+
+<h3>How to read this document</h3>
+<p>Sections 1-5 establish <em>what</em> the system is for and where its boundaries lie. Sections 6-7
+present the architecture, first in prose and then formally in UML. Sections 8-12 describe the data,
+machine-learning, security and technology dimensions of that architecture. Section 13 states, without
+softening, what the system does not do and where its results should not be relied upon. Readers who
+need only the operational picture may read Sections 5, 7.2, 7.10 and 12.</p>
+
+<div class="note"><b>Notation</b>
+Diagrams follow UML 2.5 notation. Where a diagram departs from strict UML for legibility - for
+example, annotating a component diagram with the concrete Python package that realises each
+component - the departure is stated in the caption. Requirement identifiers in the form
+<span class="id">FR-04</span> or <span class="id">NFR-02</span> refer to DRG-BRD-001.</div>
+
+<!-- ==================== 2. OVERVIEW ==================== -->
+<h2 class="sec">Project Overview</h2>
+
+<h3>Problem statement</h3>
+<p>Urban low-voltage distribution networks in the United Kingdom were dimensioned for a domestic load
+profile that is now changing faster than the assets serving it. Two electrification vectors dominate
+that change. Uncontrolled domestic electric-vehicle charging concentrates a 7 kW load into the
+evening window that already contains the daily demand peak. Electrified heating replaces a gas load
+with an electrical one that rises precisely when the weather is coldest and occupancy highest.</p>
+
+<p>Both loads are individually well understood. What network planners lack is a way to quantify, at
+the granularity of an actual neighbourhood and an actual half-hour, how far a given adoption
+trajectory pushes local demand beyond its historical envelope - and to do so from the data they
+already hold, namely smart-meter consumption records, without waiting for network telemetry that may
+never be instrumented at that level.</p>
+
+<p>Conventional practice relies on historical averages and diversified design figures. These are
+sound for steady-state planning but silent on three questions that matter for electrification: how
+<em>often</em> demand will exceed its historical envelope, for how <em>long</em> each such episode
+will last, and which conditions <em>drive</em> those episodes.</p>
+
+<h3>Aim</h3>
+<div class="ok"><b>Aim</b>
+To design, implement and evaluate an AI-driven forecasting and electrification stress-modelling
+framework that quantifies neighbourhood-level demand risk under future electric-vehicle and heat-pump
+adoption scenarios, using demand-side smart-meter data and publicly available contextual data only.</div>
+
+<h3>Objectives</h3>
+<table class="t">
+  <caption>Project objectives and their realisation in the architecture</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th>Objective</th><th style="width:52mm">Realised by</th></tr></thead>
+  <tbody>
+    <tr><td class="id">OBJ-1</td><td>Analyse neighbourhood-level consumption patterns from UK smart-meter data</td><td>Ingestion and EDA components (Sections 6.2, 8)</td></tr>
+    <tr><td class="id">OBJ-2</td><td>Develop and validate machine-learning models for short-term demand forecasting</td><td>Forecasting component and validation protocol (Section 9)</td></tr>
+    <tr><td class="id">OBJ-3</td><td>Implement statistical stress detection using percentile-based thresholds</td><td>Stress detection component (Sections 6.2, 7.8)</td></tr>
+    <tr><td class="id">OBJ-4</td><td>Simulate EV and heat-pump adoption scenarios and quantify peak amplification</td><td>Electrification simulation component (Sections 7.3, 7.4)</td></tr>
+    <tr><td class="id">OBJ-5</td><td>Conduct sensitivity analysis of stress frequency and duration</td><td>Sensitivity analysis component (Section 7.4)</td></tr>
+    <tr><td class="id">OBJ-6</td><td>Apply explainable AI to interpret model outputs</td><td>SHAP explainability component (Section 9.5)</td></tr>
+    <tr><td class="id">OBJ-7</td><td>Deliver a dashboard visualising forecasts, alerts and scenario comparisons</td><td>Presentation layer and streaming replay (Sections 6.2, 7.5)</td></tr>
+  </tbody>
+</table>
+
+<h3>Research questions</h3>
+<ol>
+  <li><strong>RQ1</strong> - How accurately can machine-learning models forecast half-hourly local
+      electricity demand using smart-meter data?</li>
+  <li><strong>RQ2</strong> - How sensitive is neighbourhood peak demand to varying EV and heat-pump
+      adoption levels?</li>
+  <li><strong>RQ3</strong> - To what extent does electrification amplify stress frequency and peak
+      intensity?</li>
+  <li><strong>RQ4</strong> - Which temporal and statistical features contribute most to high-demand
+      stress prediction?</li>
+</ol>
+<p>Each question maps onto a measurable output of the system: RQ1 to the evaluation metrics of the
+model ladder; RQ2 and RQ3 to the adoption sensitivity grid; RQ4 to the stress-conditional SHAP
+attribution. The architecture is arranged so that answering them is a by-product of running the
+pipeline, not a separate manual analysis.</p>
+
+<h3>What the system is not</h3>
+<div class="warn"><b>Boundary of validity</b>
+DRG performs <strong>no physical power-flow modelling</strong>. It has no network topology, no
+transformer or cable ratings, and no voltage or thermal model. "Stress" is a statistical statement
+about a demand distribution, not an engineering statement about an asset. The output identifies
+<em>where and when to look</em> and <em>how much worse electrification makes it</em>; it does not by
+itself justify a reinforcement decision, which requires asset data the source dataset does not
+contain.</div>
+
+<!-- ==================== 3. SCOPE ==================== -->
+<h2 class="sec">Scope</h2>
+
+<h3>In scope</h3>
+<table class="t">
+  <caption>Functional scope of the delivered system</caption>
+  <thead><tr><th style="width:16mm">Ref</th><th style="width:48mm">Capability</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td class="id">SC-01</td><td>Data ingestion</td><td>Memory-bounded, chunked ingestion of the Low Carbon London half-hourly release; cleaning, outlier treatment, gap repair, aggregation of households into fixed-size neighbourhood groups.</td></tr>
+    <tr><td class="id">SC-02</td><td>Contextual data acquisition</td><td>Retrieval of observed temperature and grid carbon intensity from public APIs, with caching, retry and documented degradation when unavailable.</td></tr>
+    <tr><td class="id">SC-03</td><td>Feature engineering</td><td>Calendar, cyclical, lag, rolling-statistic, ramp and exogenous features, computed identically for training and serving.</td></tr>
+    <tr><td class="id">SC-04</td><td>Demand forecasting</td><td>A ladder of models - seasonal naive, linear/ridge, gradient boosting, deep sequence - evaluated on a common held-out chronological window.</td></tr>
+    <tr><td class="id">SC-05</td><td>Statistical stress detection</td><td>Percentile and standard-deviation thresholds; stress event extraction with frequency, duration, intensity and seasonal decomposition.</td></tr>
+    <tr><td class="id">SC-06</td><td>Electrification simulation</td><td>Bottom-up, household-level EV charging and heat-pump load models with diversity and Monte-Carlo repetition.</td></tr>
+    <tr><td class="id">SC-07</td><td>Sensitivity analysis</td><td>Full adoption grid, peak amplification, stress escalation, adoption elasticity and seasonal split.</td></tr>
+    <tr><td class="id">SC-08</td><td>Explainability</td><td>Global and stress-conditional SHAP attribution for the champion model.</td></tr>
+    <tr><td class="id">SC-09</td><td>Near-real-time prototype</td><td>Replay of historical demand as a simulated live feed with rolling forecasts and pre-emptive stress alerts.</td></tr>
+    <tr><td class="id">SC-10</td><td>Decision-support interfaces</td><td>A REST service and an interactive dashboard exposing forecasts, stress, scenarios and explanations.</td></tr>
+    <tr><td class="id">SC-11</td><td>Cloud deployment</td><td>Reproducible Azure infrastructure as code, containerised services, scheduled retraining.</td></tr>
+    <tr><td class="id">SC-12</td><td>Model lifecycle control</td><td>Automated promotion gating and blue/green model release with rollback.</td></tr>
+  </tbody>
+</table>
+
+<h3>Out of scope</h3>
+<table class="t">
+  <caption>Explicit exclusions and the reason for each</caption>
+  <thead><tr><th style="width:16mm">Ref</th><th style="width:52mm">Excluded</th><th>Reason</th></tr></thead>
+  <tbody>
+    <tr><td class="id">OS-01</td><td>Power-flow, voltage or thermal modelling</td><td>Requires network topology and asset ratings absent from the source dataset.</td></tr>
+    <tr><td class="id">OS-02</td><td>Asset-level reinforcement recommendations</td><td>Follows from OS-01; DRG informs such decisions but cannot make them.</td></tr>
+    <tr><td class="id">OS-03</td><td>Real-time control or switching actions</td><td>DRG is an analytical and advisory system with no operational technology interface.</td></tr>
+    <tr><td class="id">OS-04</td><td>Smart-tariff and managed-charging optimisation</td><td>Deliberately excluded so the results characterise the <em>uncontrolled</em> case, which is the planning worst case. Identified as future work (Section 13).</td></tr>
+    <tr><td class="id">OS-05</td><td>Individual household profiling or targeting</td><td>Prohibited by the data licence and unnecessary for the analytical purpose.</td></tr>
+    <tr><td class="id">OS-06</td><td>Generation, storage and export modelling</td><td>The source data measures import only.</td></tr>
+    <tr><td class="id">OS-07</td><td>Geographic or GIS-based feeder mapping</td><td>Feeder identifiers are not present in the anonymised dataset.</td></tr>
+  </tbody>
+</table>
+
+<h3>Assumptions</h3>
+<table class="t">
+  <caption>Assumptions on which the design depends</caption>
+  <thead><tr><th style="width:16mm">Ref</th><th>Assumption</th><th style="width:44mm">If invalid</th></tr></thead>
+  <tbody>
+    <tr><td class="id">AS-01</td><td>Fixed-size hash-derived household groups are an acceptable proxy for LV feeder groups for statistical purposes.</td><td>Absolute stress figures remain valid per group but cannot be mapped to a physical asset.</td></tr>
+    <tr><td class="id">AS-02</td><td>Historical consumption behaviour, absent electrification, remains broadly stationary over the planning horizon.</td><td>Baseline thresholds drift; retraining cadence must increase.</td></tr>
+    <tr><td class="id">AS-03</td><td>EV charging is uncontrolled and predominantly begins in the evening window.</td><td>Peak amplification is overstated; managed charging would flatten it materially.</td></tr>
+    <tr><td class="id">AS-04</td><td>Heat-pump electrical input scales with heating degrees and saturates at the unit rating.</td><td>Winter results shift; the model is parameterised so the relationship can be recalibrated.</td></tr>
+    <tr><td class="id">AS-05</td><td>Public contextual APIs remain available under their current terms.</td><td>The system degrades to documented fallbacks without failing.</td></tr>
+  </tbody>
+</table>
+
+<h3>Constraints</h3>
+<table class="t">
+  <caption>Constraints imposed on the design</caption>
+  <thead><tr><th style="width:16mm">Ref</th><th style="width:38mm">Constraint</th><th>Architectural consequence</th></tr></thead>
+  <tbody>
+    <tr><td class="id">CN-01</td><td>Data licence</td><td>Raw smart-meter data may not be redistributed or published. Ingestion must run where the data already resides; the repository must remain runnable without it.</td></tr>
+    <tr><td class="id">CN-02</td><td>Commodity hardware</td><td>The pipeline must complete on a machine with 8 GB RAM, forcing chunked ingestion and immediate aggregation rather than whole-dataset loading.</td></tr>
+    <tr><td class="id">CN-03</td><td>No asset data</td><td>Stress must be defined statistically rather than against a rating.</td></tr>
+    <tr><td class="id">CN-04</td><td>Cost ceiling</td><td>Cloud design favours scale-to-zero serverless hosting over always-on clusters.</td></tr>
+    <tr><td class="id">CN-05</td><td>Reproducibility</td><td>Every stochastic component must be seeded and every run must emit a machine-readable report.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== 4. STAKEHOLDERS ==================== -->
+<h2 class="sec">Stakeholders and System Actors</h2>
+
+<p>The distinction matters for the use-case model in Section 7.1: a <em>stakeholder</em> has an
+interest in the system's outcomes; an <em>actor</em> interacts with the system directly.</p>
+
+<table class="t">
+  <caption>Stakeholders, actors and their concerns</caption>
+  <thead><tr><th style="width:42mm">Party</th><th class="c" style="width:16mm">Actor?</th><th>Principal concern</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Network Planner</strong> (DNO)</td><td class="c">Yes</td><td>Which neighbourhoods approach their demand envelope, how electrification changes that, and how much headroom remains.</td></tr>
+    <tr><td><strong>Urban Energy Researcher</strong></td><td class="c">Yes</td><td>Reproducible method, defensible parameters, access to underlying results.</td></tr>
+    <tr><td><strong>Policy &amp; Strategy Analyst</strong></td><td class="c">Yes</td><td>Adoption elasticity - the marginal effect of each additional tranche of EV or heat-pump uptake.</td></tr>
+    <tr><td><strong>Data Engineer</strong></td><td class="c">Yes</td><td>Ingestion of the licensed extract, data quality, pipeline operation.</td></tr>
+    <tr><td><strong>ML Engineer</strong></td><td class="c">Yes</td><td>Model quality, retraining, safe release to the serving endpoint.</td></tr>
+    <tr><td><strong>Scheduler</strong> (time-triggered)</td><td class="c">Yes</td><td>Non-human actor initiating the nightly pipeline and weekly retraining.</td></tr>
+    <tr><td>Energy Supplier</td><td class="c">No</td><td>Flexibility-product design informed by stress timing.</td></tr>
+    <tr><td>Data Protection Officer</td><td class="c">No</td><td>Licence compliance and absence of personal data.</td></tr>
+    <tr><td>Project Sponsor</td><td class="c">No</td><td>Delivery against the business case.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== 5. SYSTEM CONTEXT ==================== -->
+<div class="pagebreak"></div>
+<h2 class="sec">System Context</h2>
+
+<p>The context diagram fixes the system boundary: what DRG owns, what it consumes, and who consumes
+it. Everything inside the dashed boundary is delivered by this project; everything outside is a
+dependency whose availability and terms are outside the project's control.</p>
+
+<figure>
+<svg class="uml" width="820" height="470" viewBox="0 0 820 470" role="img"
+     aria-label="System context diagram for the Dynamic Resilient Grid framework">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#52514e"/>
+    </marker>
+    <marker id="arb" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#2a78d6"/>
+    </marker>
+  </defs>
+
+  <!-- system boundary -->
+  <rect x="270" y="118" width="280" height="234" rx="10" fill="#eef4fb" stroke="#2a78d6"
+        stroke-width="2" stroke-dasharray="7 5"/>
+  <text x="410" y="142" text-anchor="middle" font-size="14" font-weight="600" fill="#2a78d6">Dynamic Resilient Grid</text>
+  <text x="410" y="159" text-anchor="middle" font-size="11" fill="#52514e">system boundary</text>
+
+  <rect x="292" y="174" width="236" height="30" rx="4" fill="#fff" stroke="#2a78d6"/>
+  <text x="410" y="194" text-anchor="middle" font-size="11.5">Ingestion &amp; feature engineering</text>
+  <rect x="292" y="210" width="236" height="30" rx="4" fill="#fff" stroke="#2a78d6"/>
+  <text x="410" y="230" text-anchor="middle" font-size="11.5">Forecasting &amp; stress detection</text>
+  <rect x="292" y="246" width="236" height="30" rx="4" fill="#fff" stroke="#2a78d6"/>
+  <text x="410" y="266" text-anchor="middle" font-size="11.5">Electrification scenario engine</text>
+  <rect x="292" y="282" width="236" height="30" rx="4" fill="#fff" stroke="#2a78d6"/>
+  <text x="410" y="302" text-anchor="middle" font-size="11.5">Explainability &amp; decision support</text>
+  <rect x="292" y="318" width="236" height="24" rx="4" fill="#f4f6f9" stroke="#c3c2b7"/>
+  <text x="410" y="334" text-anchor="middle" font-size="10.5" fill="#52514e">REST API &nbsp;|&nbsp; Dashboard &nbsp;|&nbsp; Reports</text>
+
+  <!-- left: data sources -->
+  <text x="30" y="40" font-size="12" font-weight="600" fill="#52514e">DATA SOURCES (external)</text>
+  <rect x="30" y="54" width="196" height="46" rx="5" fill="#fdf4ef" stroke="#eb6834" stroke-width="1.5"/>
+  <text x="128" y="73" text-anchor="middle" font-size="11.5" font-weight="600">Low Carbon London</text>
+  <text x="128" y="89" text-anchor="middle" font-size="10" fill="#52514e">UK Data Service, study 7857</text>
+
+  <rect x="30" y="112" width="196" height="46" rx="5" fill="#fdf4ef" stroke="#eb6834" stroke-width="1.5"/>
+  <text x="128" y="131" text-anchor="middle" font-size="11.5" font-weight="600">Open-Meteo</text>
+  <text x="128" y="147" text-anchor="middle" font-size="10" fill="#52514e">ERA5 archive + forecast</text>
+
+  <rect x="30" y="170" width="196" height="46" rx="5" fill="#fdf4ef" stroke="#eb6834" stroke-width="1.5"/>
+  <text x="128" y="189" text-anchor="middle" font-size="11.5" font-weight="600">Carbon Intensity API</text>
+  <text x="128" y="205" text-anchor="middle" font-size="10" fill="#52514e">National Grid ESO</text>
+
+  <rect x="30" y="228" width="196" height="46" rx="5" fill="#fdf4ef" stroke="#eb6834" stroke-width="1.5"/>
+  <text x="128" y="247" text-anchor="middle" font-size="11.5" font-weight="600">OpenWeatherMap</text>
+  <text x="128" y="263" text-anchor="middle" font-size="10" fill="#52514e">live conditions (optional)</text>
+
+  <!-- left: platform -->
+  <text x="30" y="312" font-size="12" font-weight="600" fill="#52514e">PLATFORM (external)</text>
+  <rect x="30" y="326" width="196" height="46" rx="5" fill="#f0faf6" stroke="#1baf7a" stroke-width="1.5"/>
+  <text x="128" y="345" text-anchor="middle" font-size="11.5" font-weight="600">Microsoft Azure</text>
+  <text x="128" y="361" text-anchor="middle" font-size="10" fill="#52514e">compute, storage, identity</text>
+
+  <!-- right: consumers -->
+  <text x="596" y="40" font-size="12" font-weight="600" fill="#52514e">CONSUMERS</text>
+  <g>
+    <circle cx="626" cy="72" r="10" fill="none" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="82" x2="626" y2="100" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="614" y1="89" x2="638" y2="89" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="100" x2="617" y2="112" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="100" x2="635" y2="112" stroke="#4a3aa7" stroke-width="1.6"/>
+    <text x="652" y="86" font-size="11.5" font-weight="600">Network Planner</text>
+    <text x="652" y="101" font-size="10" fill="#52514e">stress &amp; scenario insight</text>
+  </g>
+  <g>
+    <circle cx="626" cy="146" r="10" fill="none" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="156" x2="626" y2="174" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="614" y1="163" x2="638" y2="163" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="174" x2="617" y2="186" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="174" x2="635" y2="186" stroke="#4a3aa7" stroke-width="1.6"/>
+    <text x="652" y="160" font-size="11.5" font-weight="600">Energy Researcher</text>
+    <text x="652" y="175" font-size="10" fill="#52514e">reproducible results</text>
+  </g>
+  <g>
+    <circle cx="626" cy="220" r="10" fill="none" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="230" x2="626" y2="248" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="614" y1="237" x2="638" y2="237" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="248" x2="617" y2="260" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="248" x2="635" y2="260" stroke="#4a3aa7" stroke-width="1.6"/>
+    <text x="652" y="234" font-size="11.5" font-weight="600">Policy Analyst</text>
+    <text x="652" y="249" font-size="10" fill="#52514e">adoption elasticity</text>
+  </g>
+  <g>
+    <circle cx="626" cy="294" r="10" fill="none" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="304" x2="626" y2="322" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="614" y1="311" x2="638" y2="311" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="322" x2="617" y2="334" stroke="#4a3aa7" stroke-width="1.6"/>
+    <line x1="626" y1="322" x2="635" y2="334" stroke="#4a3aa7" stroke-width="1.6"/>
+    <text x="652" y="308" font-size="11.5" font-weight="600">Data / ML Engineer</text>
+    <text x="652" y="323" font-size="10" fill="#52514e">operate &amp; retrain</text>
+  </g>
+
+  <!-- arrows in -->
+  <line x1="226" y1="77" x2="286" y2="180" stroke="#52514e" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="226" y1="135" x2="286" y2="186" stroke="#52514e" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="226" y1="193" x2="286" y2="192" stroke="#52514e" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="226" y1="251" x2="286" y2="198" stroke="#52514e" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="226" y1="349" x2="286" y2="330" stroke="#1baf7a" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="236" y="378" font-size="9.5" fill="#1baf7a">hosts</text>
+
+  <!-- arrows out -->
+  <line x1="534" y1="196" x2="600" y2="92" stroke="#2a78d6" stroke-width="1.4" marker-end="url(#arb)"/>
+  <line x1="534" y1="216" x2="600" y2="166" stroke="#2a78d6" stroke-width="1.4" marker-end="url(#arb)"/>
+  <line x1="534" y1="256" x2="600" y2="240" stroke="#2a78d6" stroke-width="1.4" marker-end="url(#arb)"/>
+  <line x1="534" y1="316" x2="600" y2="314" stroke="#2a78d6" stroke-width="1.4" marker-end="url(#arb)"/>
+
+  <text x="252" y="64" font-size="9.5" fill="#52514e" transform="rotate(-58 252 64)">half-hourly kWh</text>
+  <text x="560" y="150" font-size="9.5" fill="#2a78d6">forecasts, alerts,</text>
+  <text x="560" y="163" font-size="9.5" fill="#2a78d6">scenarios</text>
+
+  <!-- footnote -->
+  <line x1="30" y1="404" x2="790" y2="404" stroke="#e1e0d9"/>
+  <text x="30" y="424" font-size="10" fill="#52514e">Data crossing the boundary inbound is anonymised half-hourly consumption and public contextual data.</text>
+  <text x="30" y="440" font-size="10" fill="#52514e">Data crossing outbound is aggregated analytics only: no household-level record ever leaves the system.</text>
+</svg>
+<figcaption>System context. The boundary is drawn at the analytics system; the licensed dataset,
+the public APIs and the cloud platform are all external dependencies.</figcaption>
+</figure>
+
+<table class="t">
+  <caption>External interfaces</caption>
+  <thead><tr><th style="width:38mm">Interface</th><th style="width:20mm">Direction</th><th style="width:22mm">Protocol</th><th>Failure behaviour</th></tr></thead>
+  <tbody>
+    <tr><td>Low Carbon London extract</td><td>Inbound</td><td>File (CSV)</td><td>Absent extract triggers the calibrated synthetic generator; provenance recorded in the data.</td></tr>
+    <tr><td>Open-Meteo archive</td><td>Inbound</td><td>HTTPS / JSON</td><td>Retry with backoff, then deterministic synthetic temperature; row tagged <code>synthetic</code>.</td></tr>
+    <tr><td>Carbon Intensity API</td><td>Inbound</td><td>HTTPS / JSON</td><td>Archive begins 2018; earlier periods use a documented climatology projection tagged <code>climatology-proxy</code>.</td></tr>
+    <tr><td>OpenWeatherMap</td><td>Inbound</td><td>HTTPS / JSON</td><td>Used only when a key is configured; otherwise Open-Meteo serves live conditions.</td></tr>
+    <tr><td>DRG REST API</td><td>Outbound</td><td>HTTPS / JSON</td><td>Returns 503 with the remediation command when a required artifact is missing.</td></tr>
+    <tr><td>DRG Dashboard</td><td>Outbound</td><td>HTTPS / HTML</td><td>Renders an actionable message rather than a stack trace when data is unavailable.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== 6. ARCHITECTURE OVERVIEW ==================== -->
+<div class="pagebreak"></div>
+<h2 class="sec">Architecture Overview</h2>
+
+<h3>Architectural drivers</h3>
+<p>Four forces shaped the architecture more than any others.</p>
+<ol>
+  <li><strong>The data cannot leave its custody, and may not be redistributed.</strong> This drives a
+      design in which the repository is fully runnable <em>without</em> the licensed data, and
+      ingestion is a pluggable stage rather than a precondition for every other stage.</li>
+  <li><strong>Memory is bounded before the dataset is.</strong> Ingestion must aggregate inside the
+      read loop, not after it.</li>
+  <li><strong>An analytical claim is only as good as its reproducibility.</strong> Every stochastic
+      element is seeded, every stage caches a typed artifact, and every run emits a machine-readable
+      report that regenerates the published figures.</li>
+  <li><strong>Scenario results are policy-adjacent.</strong> Parameters that materially change the
+      headline number must be explicit, defensible against published planning figures, and auditable
+      in the output rather than buried in code.</li>
+</ol>
+
+<h3>Layered view</h3>
+
+<figure>
+<svg class="uml" width="820" height="500" viewBox="0 0 820 500" role="img"
+     aria-label="Layered architecture of the DRG framework">
+  <defs>
+    <marker id="dn" markerWidth="10" markerHeight="10" refX="9" refY="3.5" orient="auto">
+      <path d="M0,0 L9,3.5 L0,7 z" fill="#898781"/>
+    </marker>
+  </defs>
+
+  <!-- Presentation -->
+  <rect x="20" y="16" width="780" height="74" rx="7" fill="#eef4fb" stroke="#2a78d6" stroke-width="1.8"/>
+  <text x="34" y="38" font-size="12.5" font-weight="700" fill="#2a78d6">PRESENTATION</text>
+  <rect x="196" y="26" width="180" height="52" rx="4" fill="#fff" stroke="#2a78d6"/>
+  <text x="286" y="47" text-anchor="middle" font-size="11.5" font-weight="600">Streamlit Dashboard</text>
+  <text x="286" y="63" text-anchor="middle" font-size="9.5" fill="#52514e">5 panels, chart theme</text>
+  <rect x="390" y="26" width="180" height="52" rx="4" fill="#fff" stroke="#2a78d6"/>
+  <text x="480" y="47" text-anchor="middle" font-size="11.5" font-weight="600">FastAPI Service</text>
+  <text x="480" y="63" text-anchor="middle" font-size="9.5" fill="#52514e">9 JSON endpoints</text>
+  <rect x="584" y="26" width="180" height="52" rx="4" fill="#fff" stroke="#2a78d6"/>
+  <text x="674" y="47" text-anchor="middle" font-size="11.5" font-weight="600">CLI / Reports</text>
+  <text x="674" y="63" text-anchor="middle" font-size="9.5" fill="#52514e">typer, JSON, figures</text>
+
+  <!-- Application -->
+  <rect x="20" y="106" width="780" height="80" rx="7" fill="#fdf4ef" stroke="#eb6834" stroke-width="1.8"/>
+  <text x="34" y="128" font-size="12.5" font-weight="700" fill="#eb6834">APPLICATION</text>
+  <rect x="196" y="118" width="180" height="56" rx="4" fill="#fff" stroke="#eb6834"/>
+  <text x="286" y="139" text-anchor="middle" font-size="11.5" font-weight="600">Pipeline Orchestration</text>
+  <text x="286" y="155" text-anchor="middle" font-size="9.5" fill="#52514e">stage functions, run_all</text>
+  <text x="286" y="168" text-anchor="middle" font-size="9" fill="#898781">drg.pipeline</text>
+  <rect x="390" y="118" width="180" height="56" rx="4" fill="#fff" stroke="#eb6834"/>
+  <text x="480" y="139" text-anchor="middle" font-size="11.5" font-weight="600">Streaming Replay</text>
+  <text x="480" y="155" text-anchor="middle" font-size="9.5" fill="#52514e">rolling forecast + alerts</text>
+  <text x="480" y="168" text-anchor="middle" font-size="9" fill="#898781">drg.streaming</text>
+  <rect x="584" y="118" width="180" height="56" rx="4" fill="#fff" stroke="#eb6834"/>
+  <text x="674" y="139" text-anchor="middle" font-size="11.5" font-weight="600">MLOps Gate</text>
+  <text x="674" y="155" text-anchor="middle" font-size="9.5" fill="#52514e">promotion decision</text>
+  <text x="674" y="168" text-anchor="middle" font-size="9" fill="#898781">drg.mlops</text>
+
+  <!-- Domain -->
+  <rect x="20" y="202" width="780" height="122" rx="7" fill="#f0faf6" stroke="#1baf7a" stroke-width="1.8"/>
+  <text x="34" y="224" font-size="12.5" font-weight="700" fill="#1baf7a">DOMAIN</text>
+  <text x="34" y="240" font-size="9" fill="#52514e">core analytics,</text>
+  <text x="34" y="252" font-size="9" fill="#52514e">no I/O, no</text>
+  <text x="34" y="264" font-size="9" fill="#52514e">framework deps</text>
+
+  <rect x="150" y="214" width="152" height="46" rx="4" fill="#fff" stroke="#1baf7a"/>
+  <text x="226" y="233" text-anchor="middle" font-size="11" font-weight="600">Feature Engineering</text>
+  <text x="226" y="249" text-anchor="middle" font-size="9" fill="#898781">drg.features</text>
+  <rect x="312" y="214" width="152" height="46" rx="4" fill="#fff" stroke="#1baf7a"/>
+  <text x="388" y="233" text-anchor="middle" font-size="11" font-weight="600">Forecasting Models</text>
+  <text x="388" y="249" text-anchor="middle" font-size="9" fill="#898781">drg.models</text>
+  <rect x="474" y="214" width="152" height="46" rx="4" fill="#fff" stroke="#1baf7a"/>
+  <text x="550" y="233" text-anchor="middle" font-size="11" font-weight="600">Stress Detection</text>
+  <text x="550" y="249" text-anchor="middle" font-size="9" fill="#898781">drg.stress</text>
+  <rect x="636" y="214" width="152" height="46" rx="4" fill="#fff" stroke="#1baf7a"/>
+  <text x="712" y="233" text-anchor="middle" font-size="11" font-weight="600">Explainability</text>
+  <text x="712" y="249" text-anchor="middle" font-size="9" fill="#898781">drg.explain</text>
+
+  <rect x="150" y="268" width="233" height="46" rx="4" fill="#fff" stroke="#1baf7a"/>
+  <text x="266" y="287" text-anchor="middle" font-size="11" font-weight="600">Electrification Simulation</text>
+  <text x="266" y="303" text-anchor="middle" font-size="9" fill="#898781">drg.simulation</text>
+  <rect x="393" y="268" width="233" height="46" rx="4" fill="#fff" stroke="#1baf7a"/>
+  <text x="509" y="287" text-anchor="middle" font-size="11" font-weight="600">Sensitivity &amp; EDA Analytics</text>
+  <text x="509" y="303" text-anchor="middle" font-size="9" fill="#898781">drg.analysis</text>
+  <rect x="636" y="268" width="152" height="46" rx="4" fill="#fff" stroke="#1baf7a"/>
+  <text x="712" y="287" text-anchor="middle" font-size="11" font-weight="600">Configuration</text>
+  <text x="712" y="303" text-anchor="middle" font-size="9" fill="#898781">drg.config</text>
+
+  <!-- Data access -->
+  <rect x="20" y="340" width="780" height="76" rx="7" fill="#f6f4fb" stroke="#4a3aa7" stroke-width="1.8"/>
+  <text x="34" y="362" font-size="12.5" font-weight="700" fill="#4a3aa7">DATA ACCESS</text>
+  <rect x="196" y="352" width="180" height="52" rx="4" fill="#fff" stroke="#4a3aa7"/>
+  <text x="286" y="373" text-anchor="middle" font-size="11.5" font-weight="600">LCL Loader</text>
+  <text x="286" y="389" text-anchor="middle" font-size="9.5" fill="#52514e">chunked, memory-bounded</text>
+  <rect x="390" y="352" width="180" height="52" rx="4" fill="#fff" stroke="#4a3aa7"/>
+  <text x="480" y="373" text-anchor="middle" font-size="11.5" font-weight="600">Public API Clients</text>
+  <text x="480" y="389" text-anchor="middle" font-size="9.5" fill="#52514e">retry, cache, fallback</text>
+  <rect x="584" y="352" width="180" height="52" rx="4" fill="#fff" stroke="#4a3aa7"/>
+  <text x="674" y="373" text-anchor="middle" font-size="11.5" font-weight="600">Storage Abstraction</text>
+  <text x="674" y="389" text-anchor="middle" font-size="9.5" fill="#52514e">local path or ADLS URI</text>
+
+  <!-- Persistence -->
+  <rect x="20" y="432" width="780" height="52" rx="7" fill="#f4f6f9" stroke="#898781" stroke-width="1.5"/>
+  <text x="34" y="454" font-size="12.5" font-weight="700" fill="#52514e">PERSISTENCE</text>
+  <text x="34" y="470" font-size="9" fill="#898781">columnar + artifacts</text>
+  <rect x="196" y="442" width="132" height="32" rx="4" fill="#fff" stroke="#898781"/>
+  <text x="262" y="462" text-anchor="middle" font-size="10.5">Parquet tables</text>
+  <rect x="340" y="442" width="132" height="32" rx="4" fill="#fff" stroke="#898781"/>
+  <text x="406" y="462" text-anchor="middle" font-size="10.5">Model bundles</text>
+  <rect x="484" y="442" width="132" height="32" rx="4" fill="#fff" stroke="#898781"/>
+  <text x="550" y="462" text-anchor="middle" font-size="10.5">JSON reports</text>
+  <rect x="628" y="442" width="136" height="32" rx="4" fill="#fff" stroke="#898781"/>
+  <text x="696" y="462" text-anchor="middle" font-size="10.5">HTTP cache (SQLite)</text>
+
+  <!-- dependency arrows -->
+  <line x1="410" y1="90" x2="410" y2="104" stroke="#898781" stroke-width="1.6" marker-end="url(#dn)"/>
+  <line x1="410" y1="186" x2="410" y2="200" stroke="#898781" stroke-width="1.6" marker-end="url(#dn)"/>
+  <line x1="410" y1="324" x2="410" y2="338" stroke="#898781" stroke-width="1.6" marker-end="url(#dn)"/>
+  <line x1="410" y1="416" x2="410" y2="430" stroke="#898781" stroke-width="1.6" marker-end="url(#dn)"/>
+</svg>
+<figcaption>Layered architecture. Dependencies point downward only. The domain layer carries the
+analytics and has no dependency on any web framework, cloud SDK or I/O concern, which is what allows
+it to be unit-tested offline in seconds.</figcaption>
+</figure>
+
+<h3>Design principles</h3>
+<table class="t">
+  <caption>Principles applied throughout the design</caption>
+  <thead><tr><th style="width:48mm">Principle</th><th>Application in DRG</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Stages are pure functions over tables</strong></td><td>Each stage reads a typed table, returns a typed table and caches it. Any stage can be re-run alone; the cloud training job and the local CLI call the identical functions, so there is no second code path to keep in step.</td></tr>
+    <tr><td><strong>One feature builder</strong></td><td>Training, replay and the API all call <code>drg.features.engineering</code>. Train/serve skew becomes structurally impossible rather than a discipline to maintain.</td></tr>
+    <tr><td><strong>Never claim data you do not have</strong></td><td>Every derived series carries a <code>source</code> column and degrades in documented steps: measured, then proxy, then synthetic.</td></tr>
+    <tr><td><strong>Fix the yardstick before the experiment</strong></td><td>Stress thresholds are estimated on the historical baseline and then held constant, so a scenario that raises demand raises measured stress instead of moving the threshold with it.</td></tr>
+    <tr><td><strong>Assert physical sanity</strong></td><td>The simulation reports ADMD per technology and energy per vehicle per day; automated tests assert equipment ratings are never exceeded and that daily EV energy stays within the range implied by UK average mileage.</td></tr>
+    <tr><td><strong>Fail loudly, degrade quietly</strong></td><td>A missing model is a 503 naming the command that fixes it; an unavailable API is a logged fallback that does not stop the pipeline.</td></tr>
+  </tbody>
+</table>
+
+<h3>Key architectural decisions</h3>
+<table class="t">
+  <caption>Decision record</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:44mm">Decision</th><th>Rationale and rejected alternative</th></tr></thead>
+  <tbody>
+    <tr><td class="id">AD-01</td><td>Statistical stress definition (P95 of own history)</td><td>No asset ratings exist in the dataset. <em>Rejected:</em> assuming a nominal transformer rating, which would have produced authoritative-looking numbers resting on an invented constant.</td></tr>
+    <tr><td class="id">AD-02</td><td>Gradient boosting as the primary model</td><td>The target responds to sharp threshold-like interactions (evening peak x cold x weekday) that trees capture directly, and TreeSHAP gives exact attribution cheaply. <em>Rejected:</em> deep sequence model as primary - marginally worse here and far harder to explain and serve.</td></tr>
+    <tr><td class="id">AD-03</td><td>Bottom-up, household-level electrification simulation</td><td>Produces a genuine diversity effect and exposes auditable per-household quantities (ADMD). <em>Rejected:</em> a flat multiplier on the aggregate profile, which cannot represent coincidence.</td></tr>
+    <tr><td class="id">AD-04</td><td>Calibrated synthetic fallback dataset</td><td>Makes the entire framework runnable, testable and shareable without the licensed extract. <em>Rejected:</em> committing a data sample, which the licence forbids.</td></tr>
+    <tr><td class="id">AD-05</td><td>Azure Container Apps over AKS</td><td>Three small services and a nightly batch job; scale-to-zero and a native cron job type cover the workload without a cluster to operate. <em>Rejected:</em> AKS, disproportionate to the load.</td></tr>
+    <tr><td class="id">AD-06</td><td>Shared Azure Files volume between batch and serving</td><td>The batch job writes data and models that the API and dashboard read immediately; removes a separate synchronisation step. <em>Rejected:</em> blob-download-on-start, which adds cold-start latency and a failure mode.</td></tr>
+    <tr><td class="id">AD-07</td><td>Separate application and model release pipelines</td><td>Code and models have different risk profiles, cadences and approvers. A model change must pass a quality gate; a documentation change must not.</td></tr>
+    <tr><td class="id">AD-08</td><td>Tabular model always served, even if a sequence model scores better</td><td>The serving contract is a design matrix; sequence models need a frame. The trainer records the fact in its log rather than silently serving something the API cannot call.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== 7. UML MODEL ==================== -->
+<div class="pagebreak"></div>
+<h2 class="sec">UML Model</h2>
+
+<p>This section presents the system formally. Each diagram is followed by the design commentary that
+the notation alone cannot carry - in particular the reasoning behind the interactions, which is where
+most of the engineering judgement in this system resides.</p>
+
+<h3>Use case diagram</h3>
+
+<figure>
+<svg class="uml" width="820" height="560" viewBox="0 0 820 560" role="img"
+     aria-label="UML use case diagram for the DRG framework">
+  <defs>
+    <marker id="uc-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#898781"/>
+    </marker>
+    <marker id="uc-open" markerWidth="11" markerHeight="11" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8" fill="none" stroke="#4a3aa7" stroke-width="1.3"/>
+    </marker>
+  </defs>
+
+  <!-- boundary -->
+  <rect x="212" y="20" width="392" height="520" rx="8" fill="#fbfcfe" stroke="#2a78d6" stroke-width="1.8"/>
+  <text x="408" y="42" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2a78d6">Dynamic Resilient Grid</text>
+
+  <!-- use cases -->
+  <g font-size="10.8">
+    <ellipse cx="408" cy="78" rx="104" ry="20" fill="#eef4fb" stroke="#2a78d6"/>
+    <text x="408" y="76" text-anchor="middle">Ingest smart-meter data</text>
+    <text x="408" y="88" text-anchor="middle" font-size="8.6" fill="#898781">UC-01</text>
+
+    <ellipse cx="408" cy="130" rx="104" ry="20" fill="#eef4fb" stroke="#2a78d6"/>
+    <text x="408" y="128" text-anchor="middle">Explore demand patterns</text>
+    <text x="408" y="140" text-anchor="middle" font-size="8.6" fill="#898781">UC-02</text>
+
+    <ellipse cx="408" cy="182" rx="104" ry="20" fill="#eef4fb" stroke="#2a78d6"/>
+    <text x="408" y="180" text-anchor="middle">Forecast local demand</text>
+    <text x="408" y="192" text-anchor="middle" font-size="8.6" fill="#898781">UC-03</text>
+
+    <ellipse cx="408" cy="234" rx="104" ry="20" fill="#eef4fb" stroke="#2a78d6"/>
+    <text x="408" y="232" text-anchor="middle">Detect stress periods</text>
+    <text x="408" y="244" text-anchor="middle" font-size="8.6" fill="#898781">UC-04</text>
+
+    <ellipse cx="408" cy="286" rx="104" ry="20" fill="#e8f6f1" stroke="#1baf7a"/>
+    <text x="408" y="284" text-anchor="middle">Simulate electrification</text>
+    <text x="408" y="296" text-anchor="middle" font-size="8.6" fill="#898781">UC-05</text>
+
+    <ellipse cx="408" cy="338" rx="104" ry="20" fill="#e8f6f1" stroke="#1baf7a"/>
+    <text x="408" y="336" text-anchor="middle">Analyse adoption sensitivity</text>
+    <text x="408" y="348" text-anchor="middle" font-size="8.6" fill="#898781">UC-06</text>
+
+    <ellipse cx="408" cy="390" rx="104" ry="20" fill="#eef4fb" stroke="#2a78d6"/>
+    <text x="408" y="388" text-anchor="middle">Explain demand drivers</text>
+    <text x="408" y="400" text-anchor="middle" font-size="8.6" fill="#898781">UC-07</text>
+
+    <ellipse cx="408" cy="442" rx="104" ry="20" fill="#eef4fb" stroke="#2a78d6"/>
+    <text x="408" y="440" text-anchor="middle">Monitor near-real-time feed</text>
+    <text x="408" y="452" text-anchor="middle" font-size="8.6" fill="#898781">UC-08</text>
+
+    <ellipse cx="408" cy="500" rx="104" ry="22" fill="#fdf4ef" stroke="#eb6834"/>
+    <text x="408" y="496" text-anchor="middle">Retrain and release model</text>
+    <text x="408" y="510" text-anchor="middle" font-size="8.6" fill="#898781">UC-09</text>
+  </g>
+
+  <!-- actors: left -->
+  <g stroke="#4a3aa7" stroke-width="1.5" fill="none">
+    <circle cx="86" cy="96" r="10"/><line x1="86" y1="106" x2="86" y2="126"/>
+    <line x1="72" y1="113" x2="100" y2="113"/><line x1="86" y1="126" x2="76" y2="140"/><line x1="86" y1="126" x2="96" y2="140"/>
+    <circle cx="86" cy="256" r="10"/><line x1="86" y1="266" x2="86" y2="286"/>
+    <line x1="72" y1="273" x2="100" y2="273"/><line x1="86" y1="286" x2="76" y2="300"/><line x1="86" y1="286" x2="96" y2="300"/>
+    <circle cx="86" cy="420" r="10"/><line x1="86" y1="430" x2="86" y2="450"/>
+    <line x1="72" y1="437" x2="100" y2="437"/><line x1="86" y1="450" x2="76" y2="464"/><line x1="86" y1="450" x2="96" y2="464"/>
+  </g>
+  <text x="86" y="158" text-anchor="middle" font-size="11" font-weight="600">Data Engineer</text>
+  <text x="86" y="318" text-anchor="middle" font-size="11" font-weight="600">Network Planner</text>
+  <text x="86" y="482" text-anchor="middle" font-size="11" font-weight="600">ML Engineer</text>
+
+  <!-- actors: right -->
+  <g stroke="#4a3aa7" stroke-width="1.5" fill="none">
+    <circle cx="730" cy="150" r="10"/><line x1="730" y1="160" x2="730" y2="180"/>
+    <line x1="716" y1="167" x2="744" y2="167"/><line x1="730" y1="180" x2="720" y2="194"/><line x1="730" y1="180" x2="740" y2="194"/>
+    <circle cx="730" cy="316" r="10"/><line x1="730" y1="326" x2="730" y2="346"/>
+    <line x1="716" y1="333" x2="744" y2="333"/><line x1="730" y1="346" x2="720" y2="360"/><line x1="730" y1="346" x2="740" y2="360"/>
+  </g>
+  <text x="730" y="212" text-anchor="middle" font-size="11" font-weight="600">Energy Researcher</text>
+  <text x="730" y="378" text-anchor="middle" font-size="11" font-weight="600">Policy Analyst</text>
+
+  <!-- non-human actor -->
+  <rect x="676" y="470" width="108" height="42" rx="4" fill="#f4f6f9" stroke="#4a3aa7" stroke-width="1.5"/>
+  <text x="730" y="488" text-anchor="middle" font-size="10.5" font-weight="600">Scheduler</text>
+  <text x="730" y="502" text-anchor="middle" font-size="9" fill="#52514e">&#171;time&#187;</text>
+
+  <!-- associations -->
+  <g stroke="#898781" stroke-width="1.2">
+    <line x1="112" y1="104" x2="304" y2="80"/>
+    <line x1="112" y1="120" x2="304" y2="176"/>
+    <line x1="112" y1="264" x2="304" y2="132"/>
+    <line x1="112" y1="268" x2="304" y2="234"/>
+    <line x1="112" y1="276" x2="304" y2="288"/>
+    <line x1="112" y1="288" x2="304" y2="440"/>
+    <line x1="112" y1="430" x2="304" y2="392"/>
+    <line x1="112" y1="440" x2="304" y2="496"/>
+    <line x1="704" y1="158" x2="512" y2="134"/>
+    <line x1="704" y1="170" x2="512" y2="238"/>
+    <line x1="704" y1="180" x2="512" y2="392"/>
+    <line x1="704" y1="324" x2="566" y2="300"/>
+    <line x1="704" y1="332" x2="512" y2="340"/>
+    <line x1="676" y1="492" x2="566" y2="500"/>
+    <line x1="676" y1="478" x2="512" y2="84"/>
+  </g>
+
+  <!-- include relationships -->
+  <g stroke="#4a3aa7" stroke-width="1.2" stroke-dasharray="6 4" fill="none">
+    <path d="M352 202 C 336 216, 336 220, 352 230" marker-end="url(#uc-open)"/>
+    <path d="M352 254 C 336 266, 336 272, 352 282" marker-end="url(#uc-open)"/>
+    <path d="M498 306 C 540 318, 540 326, 498 336" marker-end="url(#uc-open)"/>
+    <path d="M498 460 C 544 472, 544 484, 498 496" marker-end="url(#uc-open)"/>
+  </g>
+  <text x="318" y="220" font-size="8.6" fill="#4a3aa7" text-anchor="end">&#171;include&#187;</text>
+  <text x="318" y="272" font-size="8.6" fill="#4a3aa7" text-anchor="end">&#171;include&#187;</text>
+  <text x="548" y="325" font-size="8.6" fill="#4a3aa7">&#171;include&#187;</text>
+  <text x="552" y="483" font-size="8.6" fill="#4a3aa7">&#171;include&#187;</text>
+</svg>
+<figcaption>Use case diagram. Green use cases are the analytical contribution that distinguishes DRG
+from a conventional forecasting study; the orange use case is the operational lifecycle that keeps
+the deployed model trustworthy.</figcaption>
+</figure>
+
+<table class="t">
+  <caption>Use case specifications (abridged)</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:36mm">Use case</th><th style="width:28mm">Primary actor</th><th>Main flow and outcome</th></tr></thead>
+  <tbody>
+    <tr><td class="id">UC-01</td><td>Ingest smart-meter data</td><td>Data Engineer</td><td>Read the licensed extract in chunks, clean, aggregate to neighbourhoods, acquire contextual series. Outcome: a cleaned half-hourly table with recorded provenance.</td></tr>
+    <tr><td class="id">UC-02</td><td>Explore demand patterns</td><td>Network Planner</td><td>Produce load curves, seasonal profiles, temperature response and peak-timing evidence. Outcome: EDA figures and a numeric summary.</td></tr>
+    <tr><td class="id">UC-03</td><td>Forecast local demand</td><td>Network Planner</td><td>Train the model ladder, evaluate on a held-out chronological window, select and persist a champion. Outcome: forecasts with quantified accuracy.</td></tr>
+    <tr><td class="id">UC-04</td><td>Detect stress periods</td><td>Network Planner</td><td>Apply percentile thresholds, extract contiguous events, summarise frequency, duration and intensity. <em>Includes</em> UC-03 when applied to forecasts.</td></tr>
+    <tr><td class="id">UC-05</td><td>Simulate electrification</td><td>Network Planner</td><td>Add bottom-up EV and heat-pump load at a chosen adoption level and recompute stress against the fixed baseline thresholds. <em>Includes</em> UC-04.</td></tr>
+    <tr><td class="id">UC-06</td><td>Analyse adoption sensitivity</td><td>Policy Analyst</td><td>Sweep the adoption grid; report peak amplification, stress escalation and elasticity. <em>Includes</em> UC-05.</td></tr>
+    <tr><td class="id">UC-07</td><td>Explain demand drivers</td><td>Energy Researcher</td><td>Compute SHAP attribution globally and restricted to stress periods. Outcome: ranked drivers answering RQ4.</td></tr>
+    <tr><td class="id">UC-08</td><td>Monitor near-real-time feed</td><td>Network Planner</td><td>Replay history as a live feed with rolling forecasts, severity state and pre-emptive alerts.</td></tr>
+    <tr><td class="id">UC-09</td><td>Retrain and release model</td><td>ML Engineer / Scheduler</td><td>Retrain, evaluate against the promotion gate, and release by blue/green deployment with rollback. <em>Includes</em> UC-03.</td></tr>
+  </tbody>
+</table>
+
+<h3 class="pagebreak">Component diagram</h3>
+
+<figure>
+<svg class="uml" width="820" height="580" viewBox="0 0 820 580" role="img"
+     aria-label="UML component diagram showing DRG components and their interfaces">
+  <defs>
+    <marker id="cd-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#898781"/>
+    </marker>
+  </defs>
+  <style>
+    .cmp { fill:#fff; stroke:#2a78d6; stroke-width:1.5; }
+    .cmpx { fill:#fdf4ef; stroke:#eb6834; stroke-width:1.5; }
+    .cmpd { fill:#f4f6f9; stroke:#898781; stroke-width:1.4; }
+    .ct { font-size:11; font-weight:600; }
+    .cs { font-size:8.8; fill:#898781; }
+    .ci { font-size:9; fill:#52514e; }
+    .lnk { stroke:#898781; stroke-width:1.3; fill:none; }
+  </style>
+
+  <!-- component icon helper drawn inline per box -->
+  <!-- external sources -->
+  <rect class="cmpx" x="16" y="40" width="150" height="52" rx="4"/>
+  <text class="ct" x="91" y="62" text-anchor="middle">&#171;external&#187;</text>
+  <text class="ct" x="91" y="78" text-anchor="middle">LCL CSV extract</text>
+
+  <rect class="cmpx" x="16" y="112" width="150" height="52" rx="4"/>
+  <text class="ct" x="91" y="134" text-anchor="middle">&#171;external&#187;</text>
+  <text class="ct" x="91" y="150" text-anchor="middle">Public context APIs</text>
+
+  <!-- data access -->
+  <rect class="cmp" x="212" y="34" width="170" height="64" rx="4"/>
+  <rect x="204" y="46" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="204" y="62" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="297" y="58" text-anchor="middle">LclLoader</text>
+  <text class="cs" x="297" y="72" text-anchor="middle">drg.data.lcl_loader</text>
+  <text class="ci" x="297" y="88" text-anchor="middle">chunked ingest + cleaning</text>
+
+  <rect class="cmp" x="212" y="112" width="170" height="64" rx="4"/>
+  <rect x="204" y="124" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="204" y="140" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="297" y="136" text-anchor="middle">ContextApiClients</text>
+  <text class="cs" x="297" y="150" text-anchor="middle">drg.data.external_apis</text>
+  <text class="ci" x="297" y="166" text-anchor="middle">retry, cache, fallback</text>
+
+  <!-- features -->
+  <rect class="cmp" x="428" y="72" width="170" height="64" rx="4"/>
+  <rect x="420" y="84" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="420" y="100" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="513" y="96" text-anchor="middle">FeatureBuilder</text>
+  <text class="cs" x="513" y="110" text-anchor="middle">drg.features</text>
+  <text class="ci" x="513" y="126" text-anchor="middle">shared by train and serve</text>
+
+  <!-- models -->
+  <rect class="cmp" x="644" y="34" width="160" height="64" rx="4"/>
+  <rect x="636" y="46" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="636" y="62" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="724" y="58" text-anchor="middle">Forecasters</text>
+  <text class="cs" x="724" y="72" text-anchor="middle">drg.models</text>
+  <text class="ci" x="724" y="88" text-anchor="middle">naive / linear / GBM / NN</text>
+
+  <rect class="cmp" x="644" y="112" width="160" height="64" rx="4"/>
+  <rect x="636" y="124" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="636" y="140" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="724" y="136" text-anchor="middle">ModelRegistry</text>
+  <text class="cs" x="724" y="150" text-anchor="middle">drg.models.registry</text>
+  <text class="ci" x="724" y="166" text-anchor="middle">bundle persistence</text>
+
+  <!-- domain analytics row -->
+  <rect class="cmp" x="60" y="228" width="170" height="64" rx="4"/>
+  <rect x="52" y="240" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="52" y="256" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="145" y="252" text-anchor="middle">StressDetector</text>
+  <text class="cs" x="145" y="266" text-anchor="middle">drg.stress</text>
+  <text class="ci" x="145" y="282" text-anchor="middle">thresholds &amp; events</text>
+
+  <rect class="cmp" x="256" y="228" width="180" height="64" rx="4"/>
+  <rect x="248" y="240" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="248" y="256" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="346" y="252" text-anchor="middle">ElectrificationSimulator</text>
+  <text class="cs" x="346" y="266" text-anchor="middle">drg.simulation</text>
+  <text class="ci" x="346" y="282" text-anchor="middle">EV + heat pump, bottom-up</text>
+
+  <rect class="cmp" x="462" y="228" width="170" height="64" rx="4"/>
+  <rect x="454" y="240" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="454" y="256" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="547" y="252" text-anchor="middle">SensitivityAnalyser</text>
+  <text class="cs" x="547" y="266" text-anchor="middle">drg.analysis</text>
+  <text class="ci" x="547" y="282" text-anchor="middle">adoption grid, elasticity</text>
+
+  <rect class="cmp" x="658" y="228" width="146" height="64" rx="4"/>
+  <rect x="650" y="240" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="650" y="256" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="731" y="252" text-anchor="middle">Explainer</text>
+  <text class="cs" x="731" y="266" text-anchor="middle">drg.explain</text>
+  <text class="ci" x="731" y="282" text-anchor="middle">SHAP attribution</text>
+
+  <!-- orchestration -->
+  <rect class="cmp" x="256" y="330" width="308" height="58" rx="4"/>
+  <rect x="248" y="342" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="248" y="358" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="410" y="354" text-anchor="middle">PipelineOrchestrator</text>
+  <text class="cs" x="410" y="368" text-anchor="middle">drg.pipeline</text>
+  <text class="ci" x="410" y="382" text-anchor="middle">stage sequencing, caching, run report</text>
+
+  <rect class="cmp" x="596" y="330" width="208" height="58" rx="4"/>
+  <rect x="588" y="342" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="588" y="358" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="700" y="354" text-anchor="middle">PromotionGate</text>
+  <text class="cs" x="700" y="368" text-anchor="middle">drg.mlops</text>
+  <text class="ci" x="700" y="382" text-anchor="middle">release decision</text>
+
+  <rect class="cmp" x="60" y="330" width="164" height="58" rx="4"/>
+  <rect x="52" y="342" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="52" y="358" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="142" y="354" text-anchor="middle">ReplayEngine</text>
+  <text class="cs" x="142" y="368" text-anchor="middle">drg.streaming</text>
+  <text class="ci" x="142" y="382" text-anchor="middle">tick, alert</text>
+
+  <!-- presentation -->
+  <rect class="cmp" x="132" y="428" width="176" height="58" rx="4"/>
+  <rect x="124" y="440" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="124" y="456" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="220" y="452" text-anchor="middle">Dashboard</text>
+  <text class="cs" x="220" y="466" text-anchor="middle">drg.dashboard</text>
+  <text class="ci" x="220" y="480" text-anchor="middle">Streamlit, 5 panels</text>
+
+  <rect class="cmp" x="340" y="428" width="176" height="58" rx="4"/>
+  <rect x="332" y="440" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="332" y="456" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="428" y="452" text-anchor="middle">DecisionSupportApi</text>
+  <text class="cs" x="428" y="466" text-anchor="middle">drg.api</text>
+  <text class="ci" x="428" y="480" text-anchor="middle">FastAPI, JSON</text>
+
+  <rect class="cmp" x="548" y="428" width="176" height="58" rx="4"/>
+  <rect x="540" y="440" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <rect x="540" y="456" width="16" height="10" fill="#fff" stroke="#2a78d6"/>
+  <text class="ct" x="636" y="452" text-anchor="middle">CommandLine</text>
+  <text class="cs" x="636" y="466" text-anchor="middle">drg.cli</text>
+  <text class="ci" x="636" y="480" text-anchor="middle">typer entry points</text>
+
+  <!-- persistence -->
+  <path class="cmpd" d="M300,520 h220 v40 h-220 z"/>
+  <ellipse cx="410" cy="520" rx="110" ry="10" class="cmpd"/>
+  <text class="ct" x="410" y="546" text-anchor="middle">Artifact store (Parquet, joblib, JSON)</text>
+
+  <!-- links -->
+  <g class="lnk">
+    <line x1="166" y1="66" x2="200" y2="66" marker-end="url(#cd-ar)"/>
+    <line x1="166" y1="138" x2="200" y2="138" marker-end="url(#cd-ar)"/>
+    <line x1="382" y1="66" x2="416" y2="88" marker-end="url(#cd-ar)"/>
+    <line x1="382" y1="144" x2="416" y2="120" marker-end="url(#cd-ar)"/>
+    <line x1="598" y1="94" x2="632" y2="70" marker-end="url(#cd-ar)"/>
+    <line x1="804" y1="66" x2="812" y2="66"/>
+    <line x1="724" y1="98" x2="724" y2="110" marker-end="url(#cd-ar)"/>
+    <line x1="513" y1="136" x2="513" y2="222" marker-end="url(#cd-ar)"/>
+    <line x1="346" y1="222" x2="230" y2="256" marker-end="url(#cd-ar)"/>
+    <line x1="462" y1="260" x2="440" y2="260" marker-end="url(#cd-ar)"/>
+    <line x1="547" y1="292" x2="470" y2="326" marker-end="url(#cd-ar)"/>
+    <line x1="145" y1="292" x2="270" y2="328" marker-end="url(#cd-ar)"/>
+    <line x1="731" y1="292" x2="560" y2="330" marker-end="url(#cd-ar)"/>
+    <line x1="410" y1="388" x2="410" y2="424" marker-end="url(#cd-ar)"/>
+    <line x1="142" y1="388" x2="200" y2="424" marker-end="url(#cd-ar)"/>
+    <line x1="700" y1="388" x2="650" y2="424" marker-end="url(#cd-ar)"/>
+    <line x1="220" y1="486" x2="330" y2="516" marker-end="url(#cd-ar)"/>
+    <line x1="428" y1="486" x2="420" y2="510" marker-end="url(#cd-ar)"/>
+    <line x1="636" y1="486" x2="500" y2="516" marker-end="url(#cd-ar)"/>
+  </g>
+</svg>
+<figcaption>Component diagram. Each component is annotated with the Python package that realises it
+(a deliberate departure from strict UML, for traceability between design and code). Arrows denote
+compile-time dependency.</figcaption>
+</figure>
+
+<div class="note"><b>Why the dependency direction matters</b>
+<code>ElectrificationSimulator</code> depends on nothing but numeric libraries, and
+<code>StressDetector</code> depends on nothing at all beyond the demand table. That is deliberate:
+these two components carry the analytical claims of the project, so they are kept free of
+configuration, I/O and framework coupling and can be exercised exhaustively in unit tests. The
+orchestrator, not the domain components, owns all knowledge of where data lives.</div>
+
+<h3 class="pagebreak">Domain class model</h3>
+
+<figure>
+<svg class="uml" width="820" height="700" viewBox="0 0 820 700" role="img"
+     aria-label="UML class diagram of the DRG domain model">
+  <defs>
+    <marker id="cl-ar" markerWidth="10" markerHeight="10" refX="9" refY="3.4" orient="auto">
+      <path d="M0,0 L9,3.4 L0,6.8 z" fill="#898781"/>
+    </marker>
+    <marker id="cl-tri" markerWidth="13" markerHeight="13" refX="12" refY="5" orient="auto">
+      <path d="M0,0 L12,5 L0,10 z" fill="#fff" stroke="#52514e" stroke-width="1.2"/>
+    </marker>
+    <marker id="cl-dia" markerWidth="16" markerHeight="10" refX="15" refY="5" orient="auto">
+      <path d="M0,5 L7,0 L14,5 L7,10 z" fill="#fff" stroke="#52514e" stroke-width="1.2"/>
+    </marker>
+  </defs>
+  <style>
+    .cls  { fill:#fff; stroke:#2a78d6; stroke-width:1.4; }
+    .clsh { fill:#eef4fb; stroke:#2a78d6; stroke-width:1.4; }
+    .clsg { fill:#fff; stroke:#1baf7a; stroke-width:1.4; }
+    .clsgh{ fill:#e8f6f1; stroke:#1baf7a; stroke-width:1.4; }
+    .cn { font-size:10.4; font-weight:700; }
+    .cm { font-size:8.2; fill:#0b0b0b; }
+    .cst{ font-size:7.8; fill:#898781; font-style:italic; }
+    .rel{ stroke:#52514e; stroke-width:1.2; fill:none; }
+    .rl { font-size:8; fill:#52514e; }
+  </style>
+
+  <!-- ROW 1 -->
+  <rect class="clsh" x="10" y="14" width="186" height="20"/>
+  <rect class="cls"  x="10" y="34" width="186" height="76"/>
+  <text class="cn" x="103" y="28" text-anchor="middle">Config</text>
+  <text class="cm" x="16" y="48">+ paths : Paths</text>
+  <text class="cm" x="16" y="61">+ seed : int</text>
+  <text class="cm" x="16" y="74">+ stress / features / models</text>
+  <text class="cm" x="16" y="87">+ get(dotted) : Any</text>
+  <text class="cm" x="16" y="100">+ load_config(path) : Config</text>
+
+  <rect class="clsh" x="212" y="14" width="186" height="20"/>
+  <rect class="cls"  x="212" y="34" width="186" height="76"/>
+  <text class="cn" x="305" y="28" text-anchor="middle">NeighbourhoodDemand</text>
+  <text class="cst" x="218" y="46">&#171;tabular record&#187;</text>
+  <text class="cm" x="218" y="60">+ timestamp : datetime</text>
+  <text class="cm" x="218" y="73">+ neighbourhood_id : str</text>
+  <text class="cm" x="218" y="86">+ demand_kwh : float</text>
+  <text class="cm" x="218" y="99">+ n_households : int</text>
+
+  <rect class="clsh" x="414" y="14" width="186" height="20"/>
+  <rect class="cls"  x="414" y="34" width="186" height="76"/>
+  <text class="cn" x="507" y="28" text-anchor="middle">FeatureBuilder</text>
+  <text class="cm" x="420" y="48">+ add_calendar_features()</text>
+  <text class="cm" x="420" y="61">+ add_lag_features()</text>
+  <text class="cm" x="420" y="74">+ add_exogenous_features()</text>
+  <text class="cm" x="420" y="87">+ build_feature_table()</text>
+  <text class="cm" x="420" y="100">+ chronological_split()</text>
+
+  <rect class="clsh" x="616" y="14" width="194" height="20"/>
+  <rect class="cls"  x="616" y="34" width="194" height="46"/>
+  <text class="cn" x="713" y="28" text-anchor="middle">&#171;interface&#187; Forecaster</text>
+  <text class="cm" x="622" y="50">+ fit(X, y)</text>
+  <text class="cm" x="622" y="63">+ predict(X) : ndarray</text>
+  <text class="cst" x="622" y="76">realised by 5 concrete models</text>
+
+  <!-- concrete forecasters -->
+  <rect class="cls" x="616" y="104" width="94" height="18"/>
+  <text class="cn" x="663" y="117" text-anchor="middle" font-size="8.4">SeasonalNaive</text>
+  <rect class="cls" x="716" y="104" width="94" height="18"/>
+  <text class="cn" x="763" y="117" text-anchor="middle" font-size="8.4">BaselineForecaster</text>
+  <rect class="cls" x="616" y="128" width="94" height="18"/>
+  <text class="cn" x="663" y="141" text-anchor="middle" font-size="8.4">XGBoostForecaster</text>
+  <rect class="cls" x="716" y="128" width="94" height="18"/>
+  <text class="cn" x="763" y="141" text-anchor="middle" font-size="8.4">LSTMForecaster</text>
+  <rect class="cls" x="666" y="152" width="144" height="18"/>
+  <text class="cn" x="738" y="165" text-anchor="middle" font-size="8.4">SequenceMLPForecaster</text>
+
+  <!-- ROW 2 -->
+  <rect class="clsgh" x="10" y="196" width="186" height="20"/>
+  <rect class="clsg"  x="10" y="216" width="186" height="76"/>
+  <text class="cn" x="103" y="210" text-anchor="middle">StressThresholds</text>
+  <text class="cm" x="16" y="230">+ neighbourhood_id : str</text>
+  <text class="cm" x="16" y="243">+ percentile : float = 95</text>
+  <text class="cm" x="16" y="256">+ primary_kwh : float</text>
+  <text class="cm" x="16" y="269">+ sensitivity_kwh : float</text>
+  <text class="cm" x="16" y="282">+ baseline_mean / std / peak</text>
+
+  <rect class="clsgh" x="212" y="196" width="186" height="20"/>
+  <rect class="clsg"  x="212" y="216" width="186" height="76"/>
+  <text class="cn" x="305" y="210" text-anchor="middle">StressEvent</text>
+  <text class="cm" x="218" y="230">+ start / end : datetime</text>
+  <text class="cm" x="218" y="243">+ duration_hours : float</text>
+  <text class="cm" x="218" y="256">+ peak_kwh : float</text>
+  <text class="cm" x="218" y="269">+ peak_exceedance_pct : float</text>
+  <text class="cm" x="218" y="282">+ energy_above_thr : float</text>
+
+  <rect class="clsh" x="414" y="196" width="186" height="20"/>
+  <rect class="cls"  x="414" y="216" width="186" height="76"/>
+  <text class="cn" x="507" y="210" text-anchor="middle">ModelBundle</text>
+  <text class="cm" x="420" y="230">+ name : str</text>
+  <text class="cm" x="420" y="243">+ estimator : Forecaster</text>
+  <text class="cm" x="420" y="256">+ feature_columns : list</text>
+  <text class="cm" x="420" y="269">+ metrics / metadata : dict</text>
+  <text class="cm" x="420" y="282">+ predict(X) : ndarray</text>
+
+  <rect class="clsh" x="616" y="196" width="194" height="20"/>
+  <rect class="cls"  x="616" y="216" width="194" height="76"/>
+  <text class="cn" x="713" y="210" text-anchor="middle">ReplayTick</text>
+  <text class="cm" x="622" y="230">+ timestamp : datetime</text>
+  <text class="cm" x="622" y="243">+ actual_kwh : float</text>
+  <text class="cm" x="622" y="256">+ forecast_next_kwh : float</text>
+  <text class="cm" x="622" y="269">+ severity : Severity</text>
+  <text class="cm" x="622" y="282">+ headroom_kwh / _pct : float</text>
+
+  <!-- ROW 3 -->
+  <rect class="clsgh" x="10" y="376" width="186" height="20"/>
+  <rect class="clsg"  x="10" y="396" width="186" height="76"/>
+  <text class="cn" x="103" y="390" text-anchor="middle">EVConfig</text>
+  <text class="cm" x="16" y="410">+ charger_kw : float = 7.0</text>
+  <text class="cm" x="16" y="423">+ window_start / end : 17 / 22</text>
+  <text class="cm" x="16" y="436">+ min / max_duration_h : 2 / 4</text>
+  <text class="cm" x="16" y="449">+ weekday_charge_prob : 0.32</text>
+  <text class="cm" x="16" y="462">+ diversity_factor : 0.85</text>
+
+  <rect class="clsgh" x="212" y="376" width="186" height="20"/>
+  <rect class="clsg"  x="212" y="396" width="186" height="76"/>
+  <text class="cn" x="305" y="390" text-anchor="middle">HeatPumpConfig</text>
+  <text class="cm" x="218" y="410">+ rated_kw : float = 2.5</text>
+  <text class="cm" x="218" y="423">+ base_temperature_c : 15.5</text>
+  <text class="cm" x="218" y="436">+ kw_per_degree : 0.085</text>
+  <text class="cm" x="218" y="449">+ evening_peak_hours : tuple</text>
+  <text class="cm" x="218" y="462">+ diversity_factor : 0.7</text>
+
+  <rect class="clsgh" x="414" y="376" width="186" height="20"/>
+  <rect class="clsg"  x="414" y="396" width="186" height="76"/>
+  <text class="cn" x="507" y="390" text-anchor="middle">ScenarioResult</text>
+  <text class="cm" x="420" y="410">+ frame : DataFrame</text>
+  <text class="cm" x="420" y="423">+ peak_amplification_pct</text>
+  <text class="cm" x="420" y="436">+ energy_growth_pct</text>
+  <text class="cm" x="420" y="449">+ ev_admd_kw / hp_admd_kw</text>
+  <text class="cm" x="420" y="462">+ ev_kwh_per_car_per_day</text>
+
+  <rect class="clsh" x="616" y="376" width="194" height="20"/>
+  <rect class="cls"  x="616" y="396" width="194" height="76"/>
+  <text class="cn" x="713" y="390" text-anchor="middle">StreamingReplayEngine</text>
+  <text class="cm" x="622" y="410">- cursor : int</text>
+  <text class="cm" x="622" y="423">+ tick() : ReplayTick</text>
+  <text class="cm" x="622" y="436">+ stream(n) : Iterator</text>
+  <text class="cm" x="622" y="449">+ forecast_next(window)</text>
+  <text class="cm" x="622" y="462">+ set_context(snapshot)</text>
+
+  <!-- ROW 4 -->
+  <rect class="clsh" x="10" y="556" width="186" height="20"/>
+  <rect class="cls"  x="10" y="576" width="186" height="64"/>
+  <text class="cn" x="103" y="570" text-anchor="middle">PipelineOrchestrator</text>
+  <text class="cm" x="16" y="590">+ stage_ingest() / _features()</text>
+  <text class="cm" x="16" y="603">+ stage_train() / _stress()</text>
+  <text class="cm" x="16" y="616">+ stage_scenarios()</text>
+  <text class="cm" x="16" y="629">+ run_all() : RunReport</text>
+
+  <rect class="clsh" x="212" y="556" width="186" height="20"/>
+  <rect class="cls"  x="212" y="576" width="186" height="64"/>
+  <text class="cn" x="305" y="570" text-anchor="middle">GateThresholds</text>
+  <text class="cm" x="218" y="590">+ min_r2 : 0.90</text>
+  <text class="cm" x="218" y="603">+ min_stress_recall : 0.70</text>
+  <text class="cm" x="218" y="616">+ max_rmse_regression_pct : 2</text>
+  <text class="cm" x="218" y="629">+ max_recall_regression_pp : 5</text>
+
+  <rect class="clsh" x="414" y="556" width="186" height="20"/>
+  <rect class="cls"  x="414" y="576" width="186" height="64"/>
+  <text class="cn" x="507" y="570" text-anchor="middle">GateDecision</text>
+  <text class="cm" x="420" y="590">+ promote : bool</text>
+  <text class="cm" x="420" y="603">+ reason : str</text>
+  <text class="cm" x="420" y="616">+ checks : list[Check]</text>
+  <text class="cm" x="420" y="629">+ to_markdown() : str</text>
+
+  <rect class="clsh" x="616" y="556" width="194" height="20"/>
+  <rect class="cls"  x="616" y="576" width="194" height="64"/>
+  <text class="cn" x="713" y="570" text-anchor="middle">Check</text>
+  <text class="cm" x="622" y="590">+ name : str</text>
+  <text class="cm" x="622" y="603">+ passed : bool</text>
+  <text class="cm" x="622" y="616">+ blocking : bool</text>
+  <text class="cm" x="622" y="629">+ detail : str</text>
+
+  <!-- relations -->
+  <g class="rel">
+    <!-- forecasters realise interface -->
+    <line x1="663" y1="104" x2="680" y2="84" marker-end="url(#cl-tri)"/>
+    <line x1="763" y1="104" x2="746" y2="84" marker-end="url(#cl-tri)"/>
+    <line x1="700" y1="128" x2="704" y2="86" marker-end="url(#cl-tri)"/>
+    <line x1="740" y1="128" x2="726" y2="86" marker-end="url(#cl-tri)"/>
+    <line x1="738" y1="152" x2="715" y2="86" marker-end="url(#cl-tri)"/>
+
+    <!-- demand -> features -->
+    <line x1="398" y1="60" x2="410" y2="60" marker-end="url(#cl-ar)"/>
+    <!-- features define bundle columns -->
+    <line x1="507" y1="110" x2="507" y2="192" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="512" y="152">defines feature_columns</text>
+    <!-- bundle holds a forecaster -->
+    <line x1="600" y1="240" x2="640" y2="176" marker-start="url(#cl-dia)"/>
+    <text class="rl" x="606" y="212">1</text>
+    <!-- demand -> thresholds -->
+    <path d="M240,110 C 180,140 130,150 103,192" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="126" y="158">derives baseline from</text>
+    <!-- thresholds -> events -->
+    <line x1="196" y1="248" x2="208" y2="248" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="152" y="188">classifies into</text>
+    <!-- configs -> scenario: routed through the empty band below row 3 -->
+    <path d="M103,472 V 508 H 486 V 476" marker-start="url(#cl-dia)" marker-end="url(#cl-ar)"/>
+    <path d="M305,472 V 492 H 528 V 476" marker-start="url(#cl-dia)" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="150" y="504">parameterises</text>
+    <!-- scenario re-evaluated against the frozen thresholds -->
+    <path d="M440,376 V 336 H 103 V 296" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="186" y="332">re-scored against the frozen thresholds</text>
+    <!-- engine -> tick, bundle -->
+    <line x1="713" y1="376" x2="713" y2="298" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="718" y="340">produces</text>
+    <line x1="616" y1="410" x2="604" y2="278" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="560" y="330">uses</text>
+    <!-- gate -->
+    <line x1="398" y1="608" x2="410" y2="608" marker-end="url(#cl-ar)"/>
+    <line x1="600" y1="620" x2="612" y2="620" marker-start="url(#cl-dia)"/>
+    <text class="rl" x="386" y="654">applies</text>
+    <text class="rl" x="596" y="638">1..*</text>
+    <!-- pipeline reads config -->
+    <path d="M103,556 C 60,420 60,220 103,114" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="12" y="356">reads</text>
+    <!-- pipeline produces bundle -->
+    <path d="M103,640 V 662 H 507 V 644" marker-end="url(#cl-ar)"/>
+    <text class="rl" x="240" y="658">orchestrates the run that produces the candidate</text>
+  </g>
+</svg>
+<figcaption>Domain class model. Blue classes are infrastructure and modelling types; green classes
+carry the analytical domain concepts (stress and electrification) that constitute the project's
+contribution. Tabular records are shown as classes for clarity.</figcaption>
+</figure>
+
+<div class="note"><b>Configuration objects as first-class domain types</b>
+<code>EVConfig</code> and <code>HeatPumpConfig</code> are not bags of settings; they are the
+scientific parameters on which every headline number depends. Modelling them as typed classes with
+documented defaults, a <code>from_config()</code> factory and unit tests asserting their physical
+consequences is what turns "we assumed 7 kW charging" from a code comment into a reviewable
+artefact.</div>
+
+<h3 class="pagebreak">Sequence: electrification scenario evaluation</h3>
+
+<p>This is the interaction that answers RQ2 and RQ3. The critical design point is the order of
+operations: thresholds are resolved from the <em>historical baseline</em> before any simulated load
+is added, so the comparison is against a fixed yardstick.</p>
+
+<figure>
+<svg class="uml" width="820" height="530" viewBox="0 0 820 530" role="img"
+     aria-label="UML sequence diagram for evaluating an electrification scenario">
+  <defs>
+    <marker id="sq-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#52514e"/>
+    </marker>
+    <marker id="sq-open" markerWidth="10" markerHeight="10" refX="9" refY="3.6" orient="auto">
+      <path d="M0,0 L9,3.6 L0,7.2" fill="none" stroke="#898781" stroke-width="1.2"/>
+    </marker>
+  </defs>
+  <style>
+    .ll { stroke:#c3c2b7; stroke-width:1.1; stroke-dasharray:5 4; }
+    .hd { fill:#eef4fb; stroke:#2a78d6; stroke-width:1.4; }
+    .hdg{ fill:#e8f6f1; stroke:#1baf7a; stroke-width:1.4; }
+    .hda{ fill:#f6f4fb; stroke:#4a3aa7; stroke-width:1.4; }
+    .act{ fill:#fff; stroke:#2a78d6; stroke-width:1.2; }
+    .msg{ stroke:#52514e; stroke-width:1.3; fill:none; }
+    .ret{ stroke:#898781; stroke-width:1.1; stroke-dasharray:5 3; fill:none; }
+    .mt { font-size:8.6; fill:#0b0b0b; }
+    .rt { font-size:8.2; fill:#898781; font-style:italic; }
+    .hn { font-size:9.2; font-weight:600; }
+  </style>
+
+  <rect class="hda" x="10"  y="14" width="96" height="32" rx="3"/>
+  <text class="hn" x="58"  y="28" text-anchor="middle">:NetworkPlanner</text>
+  <text class="rt" x="58"  y="40" text-anchor="middle">actor</text>
+
+  <rect class="hd"  x="128" y="14" width="104" height="32" rx="3"/>
+  <text class="hn" x="180" y="28" text-anchor="middle">:DecisionSupport</text>
+  <text class="hn" x="180" y="40" text-anchor="middle">Api</text>
+
+  <rect class="hd"  x="254" y="14" width="96" height="32" rx="3"/>
+  <text class="hn" x="302" y="28" text-anchor="middle">:ArtifactStore</text>
+  <text class="rt" x="302" y="40" text-anchor="middle">parquet</text>
+
+  <rect class="hdg" x="372" y="14" width="104" height="32" rx="3"/>
+  <text class="hn" x="424" y="34" text-anchor="middle">:StressDetector</text>
+
+  <rect class="hdg" x="498" y="14" width="112" height="32" rx="3"/>
+  <text class="hn" x="554" y="28" text-anchor="middle">:Electrification</text>
+  <text class="hn" x="554" y="40" text-anchor="middle">Simulator</text>
+
+  <rect class="hd"  x="632" y="14" width="104" height="32" rx="3"/>
+  <text class="hn" x="684" y="34" text-anchor="middle">:ScenarioResult</text>
+
+  <line class="ll" x1="58"  y1="46" x2="58"  y2="512"/>
+  <line class="ll" x1="180" y1="46" x2="180" y2="512"/>
+  <line class="ll" x1="302" y1="46" x2="302" y2="512"/>
+  <line class="ll" x1="424" y1="46" x2="424" y2="512"/>
+  <line class="ll" x1="554" y1="46" x2="554" y2="512"/>
+  <line class="ll" x1="684" y1="46" x2="684" y2="512"/>
+
+  <rect class="act" x="174" y="70"  width="12" height="392"/>
+  <rect class="act" x="296" y="92"  width="12" height="26"/>
+  <rect class="act" x="418" y="142" width="12" height="26"/>
+  <rect class="act" x="548" y="196" width="12" height="152"/>
+  <rect class="act" x="678" y="330" width="12" height="22"/>
+  <rect class="act" x="418" y="376" width="12" height="44"/>
+
+  <line class="msg" x1="58" y1="70" x2="172" y2="70" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="60" y="65">1: POST /scenario {ev 0.6, hp 0.5, days 120}</text>
+
+  <line class="msg" x1="186" y1="92" x2="294" y2="92" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="188" y="87">2: load demand window</text>
+  <line class="ret" x1="294" y1="116" x2="186" y2="116" marker-end="url(#sq-open)"/>
+  <text class="rt" x="190" y="130">baseline half-hourly demand</text>
+
+  <line class="msg" x1="186" y1="142" x2="416" y2="142" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="188" y="137">3: compute_thresholds(history, P95, 2 sigma)</text>
+  <line class="ret" x1="416" y1="166" x2="186" y2="166" marker-end="url(#sq-open)"/>
+  <text class="rt" x="190" y="180">StressThresholds &#8212; frozen from here on</text>
+
+  <line class="msg" x1="186" y1="196" x2="546" y2="196" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="188" y="191">4: apply_scenario(window, ev, hp, runs)</text>
+
+  <path class="msg" d="M560,214 h34 v18 h-34" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="598" y="220">4.1: simulate_ev_load()</text>
+  <text class="rt" x="598" y="231">plug-in day, start time, duration</text>
+
+  <path class="msg" d="M560,252 h34 v18 h-34" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="598" y="258">4.2: simulate_heat_pump_load()</text>
+  <text class="rt" x="598" y="269">heating degrees, capped at rating</text>
+
+  <path class="msg" d="M560,290 h34 v18 h-34" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="598" y="296">4.3: diversity + Monte-Carlo mean</text>
+  <text class="rt" x="598" y="307">reports ADMD per technology</text>
+
+  <line class="msg" x1="560" y1="330" x2="676" y2="330" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="562" y="325">5: create(...)</text>
+  <line class="ret" x1="676" y1="352" x2="186" y2="352" marker-end="url(#sq-open)"/>
+  <text class="rt" x="420" y="366">ScenarioResult</text>
+
+  <line class="msg" x1="186" y1="390" x2="416" y2="390" marker-end="url(#sq-ar)"/>
+  <text class="mt" x="188" y="385">6: detect_stress(electrified_kwh, frozen thresholds)</text>
+  <line class="ret" x1="416" y1="414" x2="186" y2="414" marker-end="url(#sq-open)"/>
+  <text class="rt" x="190" y="428">flags, events, per-site summary</text>
+
+  <line class="ret" x1="172" y1="452" x2="60" y2="452" marker-end="url(#sq-open)"/>
+  <text class="rt" x="62" y="446">200 OK: summary, stress, daily profile</text>
+
+  <rect x="220" y="472" width="470" height="34" rx="3" fill="#fdf4ef" stroke="#eb6834" stroke-width="1.2"/>
+  <text class="mt" x="230" y="487" font-weight="700" fill="#eb6834">Design invariant</text>
+  <text class="mt" x="230" y="500">Step 3 precedes step 4: the threshold comes from history, never from the electrified series.</text>
+</svg>
+<figcaption>Sequence diagram - on-demand electrification scenario evaluation via the REST service.
+The same interaction, minus the HTTP boundary, is executed by the dashboard scenario studio and by
+the batch sensitivity grid.</figcaption>
+</figure>
+
+<h3 class="pagebreak">Sequence: near-real-time replay tick</h3>
+
+<figure>
+<svg class="uml" width="820" height="450" viewBox="0 0 820 450" role="img"
+     aria-label="UML sequence diagram for a single streaming replay tick">
+  <defs>
+    <marker id="sq2-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#52514e"/>
+    </marker>
+    <marker id="sq2-open" markerWidth="10" markerHeight="10" refX="9" refY="3.6" orient="auto">
+      <path d="M0,0 L9,3.6 L0,7.2" fill="none" stroke="#898781" stroke-width="1.2"/>
+    </marker>
+  </defs>
+  <style>
+    .l2 { stroke:#c3c2b7; stroke-width:1.1; stroke-dasharray:5 4; }
+    .h2 { fill:#eef4fb; stroke:#2a78d6; stroke-width:1.4; }
+    .h2a{ fill:#f6f4fb; stroke:#4a3aa7; stroke-width:1.4; }
+    .a2 { fill:#fff; stroke:#2a78d6; stroke-width:1.2; }
+    .m2 { stroke:#52514e; stroke-width:1.3; fill:none; }
+    .r2 { stroke:#898781; stroke-width:1.1; stroke-dasharray:5 3; fill:none; }
+    .t2 { font-size:9.2; }
+    .i2 { font-size:8.8; fill:#898781; font-style:italic; }
+    .n2 { font-size:10; font-weight:600; }
+  </style>
+
+  <rect class="h2a" x="14"  y="16" width="110" height="34" rx="3"/>
+  <text class="n2" x="69"  y="30" text-anchor="middle">:Dashboard</text>
+  <text class="i2" x="69"  y="43" text-anchor="middle">or API / CLI</text>
+
+  <rect class="h2"  x="164" y="16" width="132" height="34" rx="3"/>
+  <text class="n2" x="230" y="30" text-anchor="middle">:StreamingReplay</text>
+  <text class="n2" x="230" y="43" text-anchor="middle">Engine</text>
+
+  <rect class="h2"  x="336" y="16" width="120" height="34" rx="3"/>
+  <text class="n2" x="396" y="30" text-anchor="middle">:FeatureBuilder</text>
+
+  <rect class="h2"  x="496" y="16" width="120" height="34" rx="3"/>
+  <text class="n2" x="556" y="30" text-anchor="middle">:ModelBundle</text>
+
+  <rect class="h2"  x="656" y="16" width="146" height="34" rx="3"/>
+  <text class="n2" x="729" y="30" text-anchor="middle">:StressThresholds</text>
+
+  <line class="l2" x1="69"  y1="50" x2="69"  y2="430"/>
+  <line class="l2" x1="230" y1="50" x2="230" y2="430"/>
+  <line class="l2" x1="396" y1="50" x2="396" y2="430"/>
+  <line class="l2" x1="556" y1="50" x2="556" y2="430"/>
+  <line class="l2" x1="729" y1="50" x2="729" y2="430"/>
+
+  <rect class="a2" x="224" y="76"  width="12" height="284"/>
+  <rect class="a2" x="390" y="136" width="12" height="50"/>
+  <rect class="a2" x="550" y="212" width="12" height="28"/>
+  <rect class="a2" x="723" y="268" width="12" height="26"/>
+
+  <line class="m2" x1="69" y1="76" x2="222" y2="76" marker-end="url(#sq2-ar)"/>
+  <text class="t2" x="74" y="71">1: tick()</text>
+
+  <path class="m2" d="M236,96 h40 v16 h-40" marker-end="url(#sq2-ar)"/>
+  <text class="t2" x="282" y="94">1.1: advance cursor, take the rolling window</text>
+  <text class="i2" x="282" y="106">336 periods of history</text>
+
+  <line class="m2" x1="236" y1="136" x2="388" y2="136" marker-end="url(#sq2-ar)"/>
+  <text class="t2" x="240" y="131">2: rebuild features for t+1</text>
+  <text class="i2" x="240" y="152">same functions used in training - no train/serve skew</text>
+  <line class="r2" x1="388" y1="184" x2="236" y2="184" marker-end="url(#sq2-open)"/>
+  <text class="i2" x="242" y="198">design matrix (1 row x 47 features)</text>
+
+  <line class="m2" x1="236" y1="212" x2="548" y2="212" marker-end="url(#sq2-ar)"/>
+  <text class="t2" x="240" y="207">3: predict(design)</text>
+  <line class="r2" x1="548" y1="238" x2="236" y2="238" marker-end="url(#sq2-open)"/>
+  <text class="i2" x="242" y="252">forecast_next_kwh (clipped at zero)</text>
+
+  <line class="m2" x1="236" y1="268" x2="721" y2="268" marker-end="url(#sq2-ar)"/>
+  <text class="t2" x="240" y="263">4: compare actual and forecast against primary_kwh</text>
+  <line class="r2" x1="721" y1="292" x2="236" y2="292" marker-end="url(#sq2-open)"/>
+  <text class="i2" x="242" y="306">is_stress, forecast_is_stress, ratio</text>
+
+  <path class="m2" d="M236,322 h50 v18 h-50" marker-end="url(#sq2-ar)"/>
+  <text class="t2" x="292" y="328">4.1: classify severity, compute headroom</text>
+
+  <line class="r2" x1="222" y1="360" x2="71" y2="360" marker-end="url(#sq2-open)"/>
+  <text class="i2" x="76" y="354">ReplayTick</text>
+
+  <rect x="120" y="378" width="580" height="46" rx="3" fill="#f0faf6" stroke="#1baf7a" stroke-width="1.2"/>
+  <text class="t2" x="132" y="394" font-weight="600" fill="#1baf7a">Pre-emptive alerting</text>
+  <text class="t2" x="132" y="408">A tick raises PRE-EMPTIVE when forecast_is_stress is true while is_stress is still false: the</text>
+  <text class="t2" x="132" y="420">forecast breaches the threshold before the measurement does. That is the only alert with lead time.</text>
+</svg>
+<figcaption>Sequence diagram - one replay tick. The engine is pull-based and synchronous so the CLI
+demonstration, the dashboard panel and the REST endpoint share a single implementation.</figcaption>
+</figure>
+
+<h3 class="pagebreak">Sequence: model retraining and release</h3>
+
+<figure>
+<svg class="uml" width="820" height="580" viewBox="0 0 820 580" role="img"
+     aria-label="UML sequence diagram for the automated model release pipeline">
+  <defs>
+    <marker id="sq3-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#52514e"/>
+    </marker>
+    <marker id="sq3-open" markerWidth="10" markerHeight="10" refX="9" refY="3.6" orient="auto">
+      <path d="M0,0 L9,3.6 L0,7.2" fill="none" stroke="#898781" stroke-width="1.2"/>
+    </marker>
+  </defs>
+  <style>
+    .l3 { stroke:#c3c2b7; stroke-width:1.1; stroke-dasharray:5 4; }
+    .h3a{ fill:#f6f4fb; stroke:#4a3aa7; stroke-width:1.4; }
+    .h3 { fill:#eef4fb; stroke:#2a78d6; stroke-width:1.4; }
+    .h3o{ fill:#fdf4ef; stroke:#eb6834; stroke-width:1.4; }
+    .a3 { fill:#fff; stroke:#2a78d6; stroke-width:1.2; }
+    .m3 { stroke:#52514e; stroke-width:1.3; fill:none; }
+    .r3 { stroke:#898781; stroke-width:1.1; stroke-dasharray:5 3; fill:none; }
+    .t3 { font-size:9.2; }
+    .i3 { font-size:8.8; fill:#898781; font-style:italic; }
+    .n3 { font-size:9.8; font-weight:600; }
+  </style>
+
+  <rect class="h3a" x="10"  y="16" width="98" height="34" rx="3"/>
+  <text class="n3" x="59"  y="30" text-anchor="middle">:Scheduler</text>
+  <text class="i3" x="59"  y="43" text-anchor="middle">weekly cron</text>
+
+  <rect class="h3"  x="140" y="16" width="110" height="34" rx="3"/>
+  <text class="n3" x="195" y="30" text-anchor="middle">:ReleasePipeline</text>
+  <text class="i3" x="195" y="43" text-anchor="middle">GitHub Actions</text>
+
+  <rect class="h3"  x="284" y="16" width="104" height="34" rx="3"/>
+  <text class="n3" x="336" y="30" text-anchor="middle">:AzureML</text>
+  <text class="i3" x="336" y="43" text-anchor="middle">training job</text>
+
+  <rect class="h3o" x="422" y="16" width="112" height="34" rx="3"/>
+  <text class="n3" x="478" y="30" text-anchor="middle">:PromotionGate</text>
+
+  <rect class="h3"  x="566" y="16" width="104" height="34" rx="3"/>
+  <text class="n3" x="618" y="30" text-anchor="middle">:ModelRegistry</text>
+
+  <rect class="h3"  x="700" y="16" width="110" height="34" rx="3"/>
+  <text class="n3" x="755" y="30" text-anchor="middle">:OnlineEndpoint</text>
+
+  <line class="l3" x1="59"  y1="50" x2="59"  y2="556"/>
+  <line class="l3" x1="195" y1="50" x2="195" y2="556"/>
+  <line class="l3" x1="336" y1="50" x2="336" y2="556"/>
+  <line class="l3" x1="478" y1="50" x2="478" y2="556"/>
+  <line class="l3" x1="618" y1="50" x2="618" y2="556"/>
+  <line class="l3" x1="755" y1="50" x2="755" y2="556"/>
+
+  <rect class="a3" x="189" y="74"  width="12" height="440"/>
+  <rect class="a3" x="330" y="96"  width="12" height="42"/>
+  <rect class="a3" x="472" y="196" width="12" height="70"/>
+  <rect class="a3" x="612" y="164" width="12" height="22"/>
+  <rect class="a3" x="612" y="300" width="12" height="22"/>
+  <rect class="a3" x="749" y="342" width="12" height="128"/>
+
+  <line class="m3" x1="59" y1="74" x2="187" y2="74" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="64" y="69">1: trigger release</text>
+
+  <line class="m3" x1="201" y1="96" x2="328" y2="96" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="205" y="91">2: submit training job, stream to completion</text>
+  <line class="r3" x1="328" y1="136" x2="201" y2="136" marker-end="url(#sq3-open)"/>
+  <text class="i3" x="207" y="150">run_report.json + best_model.joblib</text>
+
+  <line class="m3" x1="201" y1="164" x2="610" y2="164" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="205" y="159">3: read incumbent metrics (registry tags)</text>
+  <line class="r3" x1="610" y1="184" x2="201" y2="184" marker-end="url(#sq3-open)"/>
+  <text class="i3" x="207" y="196">incumbent metrics, or none on first release</text>
+
+  <line class="m3" x1="201" y1="212" x2="470" y2="212" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="205" y="207">4: evaluate_gate(candidate, incumbent, thresholds)</text>
+
+  <path class="m3" d="M484,230 h40 v16 h-40" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="530" y="236">4.1: absolute floors, then relative comparison</text>
+
+  <line class="r3" x1="470" y1="262" x2="201" y2="262" marker-end="url(#sq3-open)"/>
+  <text class="i3" x="207" y="276">GateDecision {promote, reason, checks}</text>
+
+  <!-- alt fragment -->
+  <rect x="150" y="286" width="600" height="196" fill="none" stroke="#4a3aa7" stroke-width="1.3"/>
+  <path d="M150,286 h56 v16 l-8,8 h-48 z" fill="#f6f4fb" stroke="#4a3aa7" stroke-width="1.3"/>
+  <text x="158" y="298" font-size="9" font-weight="700" fill="#4a3aa7">alt</text>
+  <text x="214" y="298" font-size="9" font-weight="600" fill="#4a3aa7">[promote = true]</text>
+
+  <line class="m3" x1="201" y1="312" x2="610" y2="312" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="205" y="307">5: register version, attach gate metrics as tags</text>
+
+  <line class="m3" x1="201" y1="342" x2="747" y2="342" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="205" y="337">6: create deployment in idle slot &#8212; 0% traffic</text>
+
+  <line class="m3" x1="201" y1="374" x2="747" y2="374" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="205" y="369">7: invoke(sample request) on the new slot only</text>
+  <line class="r3" x1="747" y1="394" x2="201" y2="394" marker-end="url(#sq3-open)"/>
+  <text class="i3" x="207" y="406">forecast, missing_features, latency &#8594; verified</text>
+
+  <line class="m3" x1="201" y1="424" x2="747" y2="424" marker-end="url(#sq3-ar)"/>
+  <text class="t3" x="205" y="419">8: shift traffic 100% to new slot, verify live, retire old slot</text>
+
+  <line x1="150" y1="444" x2="750" y2="444" stroke="#4a3aa7" stroke-width="1.1" stroke-dasharray="6 4"/>
+  <text x="214" y="458" font-size="9" font-weight="600" fill="#4a3aa7">[promote = false]</text>
+  <text class="t3" x="330" y="458">publish blocked report; incumbent continues to serve unchanged</text>
+  <text class="i3" x="330" y="472">no registration, no deployment, no traffic change</text>
+
+  <!-- rollback note -->
+  <rect x="240" y="498" width="510" height="46" rx="3" fill="#fdf4ef" stroke="#eb6834" stroke-width="1.2"/>
+  <text class="t3" x="252" y="514" font-weight="600" fill="#eb6834">Compensating action</text>
+  <text class="t3" x="252" y="528">Any failure in steps 6-8 deletes the new slot and returns 100% of traffic to the incumbent.</text>
+  <text class="t3" x="252" y="540">The previous deployment is retired only after the live endpoint has itself been verified.</text>
+</svg>
+<figcaption>Sequence diagram - automated model release. The <code>alt</code> fragment is the safety
+property: a model that fails the gate never reaches the registry, let alone the endpoint.</figcaption>
+</figure>
+
+<h3 class="pagebreak">Activity: end-to-end analysis pipeline</h3>
+
+<figure>
+<svg class="uml" width="820" height="600" viewBox="0 0 820 600" role="img"
+     aria-label="UML activity diagram of the end-to-end DRG pipeline">
+  <defs>
+    <marker id="ac-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#52514e"/>
+    </marker>
+  </defs>
+  <style>
+    .ab { fill:#eef4fb; stroke:#2a78d6; stroke-width:1.4; }
+    .ag { fill:#e8f6f1; stroke:#1baf7a; stroke-width:1.4; }
+    .ao { fill:#fdf4ef; stroke:#eb6834; stroke-width:1.4; }
+    .ad { fill:#fff; stroke:#4a3aa7; stroke-width:1.4; }
+    .af { stroke:#52514e; stroke-width:1.4; fill:none; }
+    .at { font-size:10; }
+    .al { font-size:8.6; fill:#52514e; }
+    .ap { font-size:8.6; fill:#898781; font-style:italic; }
+  </style>
+
+  <!-- start -->
+  <circle cx="70" cy="34" r="9" fill="#0b0b0b"/>
+  <text class="al" x="86" y="38">start: drg run-all</text>
+
+  <!-- decision: data present -->
+  <path class="ad" d="M70,72 L124,102 L70,132 L16,102 z"/>
+  <text class="at" x="70" y="98" text-anchor="middle" font-size="8.8">licensed</text>
+  <text class="at" x="70" y="109" text-anchor="middle" font-size="8.8">extract?</text>
+
+  <rect class="ab" x="150" y="72" width="150" height="34" rx="16"/>
+  <text class="at" x="225" y="93" text-anchor="middle">Chunked LCL ingest</text>
+  <rect class="ao" x="150" y="118" width="150" height="34" rx="16"/>
+  <text class="at" x="225" y="139" text-anchor="middle">Calibrated synthetic</text>
+
+  <rect class="ab" x="336" y="90" width="150" height="34" rx="16"/>
+  <text class="at" x="411" y="105" text-anchor="middle">Clean, repair,</text>
+  <text class="at" x="411" y="117" text-anchor="middle">aggregate to sites</text>
+
+  <!-- fork for context -->
+  <rect x="524" y="82" width="8" height="52" fill="#0b0b0b"/>
+  <rect class="ab" x="560" y="66" width="170" height="30" rx="15"/>
+  <text class="at" x="645" y="86" text-anchor="middle">Fetch temperature (ERA5)</text>
+  <rect class="ab" x="560" y="118" width="170" height="30" rx="15"/>
+  <text class="at" x="645" y="138" text-anchor="middle">Fetch carbon intensity</text>
+  <rect x="756" y="82" width="8" height="52" fill="#0b0b0b"/>
+
+  <!-- feature -->
+  <rect class="ab" x="560" y="176" width="200" height="34" rx="16"/>
+  <text class="at" x="660" y="197" text-anchor="middle">Build feature table</text>
+  <text class="ap" x="660" y="220" text-anchor="middle">calendar + lag + rolling + exogenous</text>
+
+  <rect class="ab" x="560" y="240" width="200" height="34" rx="16"/>
+  <text class="at" x="660" y="261" text-anchor="middle">Chronological split</text>
+
+  <rect class="ab" x="560" y="296" width="200" height="46" rx="16"/>
+  <text class="at" x="660" y="315" text-anchor="middle">Train model ladder</text>
+  <text class="ap" x="660" y="331" text-anchor="middle">naive, linear, GBM, neural</text>
+
+  <path class="ad" d="M660,368 L734,394 L660,420 L586,394 z"/>
+  <text class="at" x="660" y="391" text-anchor="middle" font-size="8.6">beats naive</text>
+  <text class="at" x="660" y="402" text-anchor="middle" font-size="8.6">benchmark?</text>
+
+  <rect class="ab" x="560" y="444" width="200" height="34" rx="16"/>
+  <text class="at" x="660" y="465" text-anchor="middle">Persist champion bundle</text>
+
+  <!-- left column: stress + scenario -->
+  <rect class="ag" x="316" y="240" width="196" height="34" rx="16"/>
+  <text class="at" x="414" y="261" text-anchor="middle">Compute P95 thresholds</text>
+  <text class="ap" x="414" y="286" text-anchor="middle">frozen from baseline history</text>
+
+  <rect class="ag" x="316" y="296" width="196" height="34" rx="16"/>
+  <text class="at" x="414" y="317" text-anchor="middle">Detect stress events</text>
+
+  <!-- loop -->
+  <rect x="60" y="240" width="230" height="196" rx="6" fill="none" stroke="#1baf7a" stroke-width="1.4" stroke-dasharray="6 4"/>
+  <text class="al" x="70" y="256" font-weight="600" fill="#1baf7a">loop [each (EV, heat pump) level]</text>
+
+  <rect class="ag" x="80" y="266" width="190" height="34" rx="16"/>
+  <text class="at" x="175" y="287" text-anchor="middle">Simulate EV load</text>
+  <rect class="ag" x="80" y="312" width="190" height="34" rx="16"/>
+  <text class="at" x="175" y="333" text-anchor="middle">Simulate heat-pump load</text>
+  <rect class="ag" x="80" y="358" width="190" height="34" rx="16"/>
+  <text class="at" x="175" y="379" text-anchor="middle">Re-detect stress (frozen)</text>
+  <rect class="ag" x="80" y="400" width="190" height="30" rx="15"/>
+  <text class="at" x="175" y="420" text-anchor="middle">Record amplification</text>
+
+  <rect class="ag" x="80" y="456" width="190" height="34" rx="16"/>
+  <text class="at" x="175" y="477" text-anchor="middle">Elasticity + escalation</text>
+
+  <rect class="ab" x="316" y="456" width="196" height="34" rx="16"/>
+  <text class="at" x="414" y="477" text-anchor="middle">SHAP attribution</text>
+  <text class="ap" x="414" y="500" text-anchor="middle">global and stress-conditional</text>
+
+  <!-- join + report -->
+  <rect x="80" y="516" width="600" height="8" fill="#0b0b0b"/>
+  <rect class="ab" x="292" y="540" width="220" height="34" rx="16"/>
+  <text class="at" x="402" y="561" text-anchor="middle">Emit run_report.json + figures</text>
+
+  <circle cx="740" cy="557" r="11" fill="none" stroke="#0b0b0b" stroke-width="1.6"/>
+  <circle cx="740" cy="557" r="6" fill="#0b0b0b"/>
+
+  <!-- flows -->
+  <g class="af">
+    <line x1="70" y1="43" x2="70" y2="70" marker-end="url(#ac-ar)"/>
+    <line x1="124" y1="94" x2="148" y2="89" marker-end="url(#ac-ar)"/>
+    <line x1="124" y1="112" x2="148" y2="130" marker-end="url(#ac-ar)"/>
+    <line x1="300" y1="89" x2="334" y2="100" marker-end="url(#ac-ar)"/>
+    <line x1="300" y1="135" x2="334" y2="114" marker-end="url(#ac-ar)"/>
+    <line x1="486" y1="107" x2="522" y2="107" marker-end="url(#ac-ar)"/>
+    <line x1="532" y1="94" x2="558" y2="82" marker-end="url(#ac-ar)"/>
+    <line x1="532" y1="120" x2="558" y2="132" marker-end="url(#ac-ar)"/>
+    <line x1="730" y1="82" x2="754" y2="94" marker-end="url(#ac-ar)"/>
+    <line x1="730" y1="132" x2="754" y2="120" marker-end="url(#ac-ar)"/>
+    <line x1="760" y1="134" x2="760" y2="176" marker-end="url(#ac-ar)"/>
+    <line x1="660" y1="210" x2="660" y2="238" marker-end="url(#ac-ar)"/>
+    <line x1="660" y1="274" x2="660" y2="294" marker-end="url(#ac-ar)"/>
+    <line x1="660" y1="342" x2="660" y2="366" marker-end="url(#ac-ar)"/>
+    <line x1="660" y1="420" x2="660" y2="442" marker-end="url(#ac-ar)"/>
+    <path d="M734,394 h44 v-90 h-18" marker-end="url(#ac-ar)"/>
+    <line x1="411" y1="124" x2="414" y2="238" marker-end="url(#ac-ar)"/>
+    <line x1="414" y1="274" x2="414" y2="294" marker-end="url(#ac-ar)"/>
+    <line x1="316" y1="313" x2="272" y2="290" marker-end="url(#ac-ar)"/>
+    <line x1="175" y1="300" x2="175" y2="310" marker-end="url(#ac-ar)"/>
+    <line x1="175" y1="346" x2="175" y2="356" marker-end="url(#ac-ar)"/>
+    <line x1="175" y1="392" x2="175" y2="398" marker-end="url(#ac-ar)"/>
+    <line x1="175" y1="436" x2="175" y2="454" marker-end="url(#ac-ar)"/>
+    <line x1="560" y1="461" x2="514" y2="470" marker-end="url(#ac-ar)"/>
+    <line x1="175" y1="490" x2="175" y2="514" marker-end="url(#ac-ar)"/>
+    <line x1="414" y1="490" x2="414" y2="514" marker-end="url(#ac-ar)"/>
+    <line x1="660" y1="478" x2="660" y2="514" marker-end="url(#ac-ar)"/>
+    <line x1="402" y1="524" x2="402" y2="538" marker-end="url(#ac-ar)"/>
+    <line x1="512" y1="557" x2="726" y2="557" marker-end="url(#ac-ar)"/>
+  </g>
+  <text class="al" x="128" y="86">yes</text>
+  <text class="al" x="128" y="128">no</text>
+  <text class="al" x="742" y="352">yes</text>
+  <text class="al" x="664" y="436">record and continue</text>
+</svg>
+<figcaption>Activity diagram - the <code>run-all</code> pipeline. The fork after cleaning shows that
+contextual data acquisition is parallelisable; the loop is the adoption grid; the join guarantees a
+single consolidated run report.</figcaption>
+</figure>
+
+<h3 class="pagebreak">State machine: neighbourhood stress severity</h3>
+
+<figure>
+<svg class="uml" width="820" height="360" viewBox="0 0 820 360" role="img"
+     aria-label="UML state machine for neighbourhood stress severity">
+  <defs>
+    <marker id="st-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#52514e"/>
+    </marker>
+  </defs>
+  <style>
+    .sb { stroke-width:1.6; }
+    .sn { font-size:11.5; font-weight:600; }
+    .sd { font-size:8.8; fill:#52514e; }
+    .se { font-size:8.8; fill:#0b0b0b; }
+    .sf { stroke:#52514e; stroke-width:1.3; fill:none; }
+  </style>
+
+  <circle cx="34" cy="120" r="9" fill="#0b0b0b"/>
+
+  <rect class="sb" x="70"  y="88" width="128" height="64" rx="10" fill="#f0faf6" stroke="#0ca30c"/>
+  <text class="sn" x="134" y="112" text-anchor="middle">Normal</text>
+  <text class="sd" x="134" y="128" text-anchor="middle">ratio &lt; 0.90</text>
+  <text class="sd" x="134" y="142" text-anchor="middle">no action</text>
+
+  <rect class="sb" x="228" y="88" width="128" height="64" rx="10" fill="#f0faf6" stroke="#0ca30c"/>
+  <text class="sn" x="292" y="112" text-anchor="middle">Watch</text>
+  <text class="sd" x="292" y="128" text-anchor="middle">0.90 &#8804; ratio &lt; 1.00</text>
+  <text class="sd" x="292" y="142" text-anchor="middle">headroom shrinking</text>
+
+  <rect class="sb" x="386" y="88" width="128" height="64" rx="10" fill="#fef8e8" stroke="#fab219"/>
+  <text class="sn" x="450" y="112" text-anchor="middle">Elevated</text>
+  <text class="sd" x="450" y="128" text-anchor="middle">1.00 &#8804; ratio &lt; 1.10</text>
+  <text class="sd" x="450" y="142" text-anchor="middle">stress period begins</text>
+
+  <rect class="sb" x="544" y="88" width="128" height="64" rx="10" fill="#fdf1ea" stroke="#ec835a"/>
+  <text class="sn" x="608" y="112" text-anchor="middle">High</text>
+  <text class="sd" x="608" y="128" text-anchor="middle">1.10 &#8804; ratio &lt; 1.25</text>
+  <text class="sd" x="608" y="142" text-anchor="middle">investigate</text>
+
+  <rect class="sb" x="702" y="88" width="104" height="64" rx="10" fill="#fbeceb" stroke="#d03b3b"/>
+  <text class="sn" x="754" y="112" text-anchor="middle">Critical</text>
+  <text class="sd" x="754" y="128" text-anchor="middle">ratio &#8805; 1.25</text>
+  <text class="sd" x="754" y="142" text-anchor="middle">escalate</text>
+
+  <g class="sf">
+    <line x1="43" y1="120" x2="66" y2="120" marker-end="url(#st-ar)"/>
+    <line x1="198" y1="108" x2="224" y2="108" marker-end="url(#st-ar)"/>
+    <line x1="356" y1="108" x2="382" y2="108" marker-end="url(#st-ar)"/>
+    <line x1="514" y1="108" x2="540" y2="108" marker-end="url(#st-ar)"/>
+    <line x1="672" y1="108" x2="698" y2="108" marker-end="url(#st-ar)"/>
+    <path d="M224,140 H198" marker-end="url(#st-ar)"/>
+    <path d="M382,140 H356" marker-end="url(#st-ar)"/>
+    <path d="M540,140 H514" marker-end="url(#st-ar)"/>
+    <path d="M698,140 H672" marker-end="url(#st-ar)"/>
+    <!-- pre-emptive transition -->
+    <path d="M134,88 C 200,34 380,34 446,86" stroke="#eb6834" stroke-width="1.6" marker-end="url(#st-ar)"/>
+  </g>
+
+  <text class="se" x="290" y="30" text-anchor="middle" fill="#eb6834" font-weight="600">forecast_is_stress [lead time available]</text>
+  <text class="sd" x="290" y="44" text-anchor="middle" fill="#eb6834">pre-emptive alert: the forecast crosses the threshold before the measurement</text>
+
+  <text class="se" x="203" y="100">rise</text>
+  <text class="se" x="203" y="162">fall</text>
+
+  <line x1="30" y1="196" x2="790" y2="196" stroke="#e1e0d9"/>
+  <text class="se" x="30" y="216" font-weight="600">Guard condition</text>
+  <text class="sd" x="30" y="232">ratio = demand / threshold_primary_kwh, where the threshold is the 95th percentile of that</text>
+  <text class="sd" x="30" y="244">neighbourhood's own baseline history.</text>
+  <text class="se" x="30" y="268" font-weight="600">Event definition</text>
+  <text class="sd" x="30" y="282">A contiguous run of two or more half-hours at Elevated or above constitutes one stress event,</text>
+  <text class="sd" x="30" y="294">which is the unit reported in the duration statistics.</text>
+  <text class="se" x="30" y="318" font-weight="600">Presentation rule</text>
+  <text class="sd" x="30" y="332">Severity is never conveyed by colour alone: each state renders with an icon and its text label,</text>
+  <text class="sd" x="30" y="344">so the state survives greyscale printing and colour-vision deficiency.</text>
+</svg>
+<figcaption>State machine - stress severity of a neighbourhood at a given half-hour. The orange
+transition is the pre-emptive path that gives an operator lead time.</figcaption>
+</figure>
+
+<h3>State machine: model lifecycle</h3>
+
+<figure>
+<svg class="uml" width="820" height="320" viewBox="0 0 820 320" role="img"
+     aria-label="UML state machine for the lifecycle of a forecasting model">
+  <defs>
+    <marker id="ml-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#52514e"/>
+    </marker>
+    <marker id="ml-red" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#d03b3b"/>
+    </marker>
+  </defs>
+  <style>
+    .mb { stroke-width:1.6; fill:#eef4fb; stroke:#2a78d6; }
+    .mn { font-size:11; font-weight:600; }
+    .md { font-size:8.6; fill:#52514e; }
+    .mf { stroke:#52514e; stroke-width:1.3; fill:none; }
+    .me { font-size:8.8; }
+  </style>
+
+  <circle cx="30" cy="70" r="9" fill="#0b0b0b"/>
+
+  <rect class="mb" x="62"  y="46" width="112" height="48" rx="9"/>
+  <text class="mn" x="118" y="68" text-anchor="middle">Trained</text>
+  <text class="md" x="118" y="83" text-anchor="middle">metrics computed</text>
+
+  <rect class="mb" x="216" y="46" width="112" height="48" rx="9"/>
+  <text class="mn" x="272" y="68" text-anchor="middle">Gated</text>
+  <text class="md" x="272" y="83" text-anchor="middle">under evaluation</text>
+
+  <rect class="mb" x="370" y="46" width="112" height="48" rx="9"/>
+  <text class="mn" x="426" y="68" text-anchor="middle">Registered</text>
+  <text class="md" x="426" y="83" text-anchor="middle">versioned + tagged</text>
+
+  <rect class="mb" x="524" y="46" width="124" height="48" rx="9"/>
+  <text class="mn" x="586" y="68" text-anchor="middle">Staged</text>
+  <text class="md" x="586" y="83" text-anchor="middle">idle slot, 0% traffic</text>
+
+  <rect x="690" y="46" width="112" height="48" rx="9" stroke-width="1.6" fill="#f0faf6" stroke="#0ca30c"/>
+  <text class="mn" x="746" y="68" text-anchor="middle">Serving</text>
+  <text class="md" x="746" y="83" text-anchor="middle">100% traffic</text>
+
+  <rect x="216" y="182" width="124" height="48" rx="9" stroke-width="1.6" fill="#fbeceb" stroke="#d03b3b"/>
+  <text class="mn" x="278" y="204" text-anchor="middle">Blocked</text>
+  <text class="md" x="278" y="219" text-anchor="middle">incumbent unchanged</text>
+
+  <rect x="524" y="182" width="124" height="48" rx="9" stroke-width="1.6" fill="#fbeceb" stroke="#d03b3b"/>
+  <text class="mn" x="586" y="204" text-anchor="middle">Rolled back</text>
+  <text class="md" x="586" y="219" text-anchor="middle">slot deleted</text>
+
+  <rect x="690" y="182" width="112" height="48" rx="9" stroke-width="1.6" fill="#f4f6f9" stroke="#898781"/>
+  <text class="mn" x="746" y="204" text-anchor="middle">Retired</text>
+  <text class="md" x="746" y="219" text-anchor="middle">superseded</text>
+
+  <g class="mf">
+    <line x1="39" y1="70" x2="58" y2="70" marker-end="url(#ml-ar)"/>
+    <line x1="174" y1="70" x2="212" y2="70" marker-end="url(#ml-ar)"/>
+    <line x1="328" y1="70" x2="366" y2="70" marker-end="url(#ml-ar)"/>
+    <line x1="482" y1="70" x2="520" y2="70" marker-end="url(#ml-ar)"/>
+    <line x1="648" y1="70" x2="686" y2="70" marker-end="url(#ml-ar)"/>
+    <line x1="272" y1="94" x2="274" y2="178" marker-end="url(#ml-red)" stroke="#d03b3b"/>
+    <line x1="586" y1="94" x2="586" y2="178" marker-end="url(#ml-red)" stroke="#d03b3b"/>
+    <path d="M746,94 v40 h-60" stroke="#d03b3b" marker-end="url(#ml-red)"/>
+    <path d="M746,134 v44" marker-end="url(#ml-ar)"/>
+  </g>
+
+  <text class="me" x="188" y="62">submit</text>
+  <text class="me" x="336" y="62">promote</text>
+  <text class="me" x="490" y="62">deploy</text>
+  <text class="me" x="654" y="62">verify ok</text>
+  <text class="me" x="282" y="140" fill="#d03b3b">gate fails</text>
+  <text class="me" x="470" y="140" fill="#d03b3b">smoke test fails</text>
+  <text class="me" x="700" y="116" fill="#d03b3b" text-anchor="end">deploy error</text>
+  <text class="me" x="752" y="156">superseded</text>
+
+  <line x1="30" y1="256" x2="790" y2="256" stroke="#e1e0d9"/>
+  <text class="me" x="30" y="276" font-weight="600">Terminal states</text>
+  <text class="md" x="130" y="276">Blocked and Rolled back are both safe: the previously Serving model keeps 100% of traffic.</text>
+  <text class="md" x="30" y="292">A model reaches Retired only after its successor has been verified while live: the incumbent is</text>
+  <text class="md" x="30" y="304">never deleted speculatively.</text>
+</svg>
+<figcaption>State machine - lifecycle of a forecasting model from training to retirement. Red states
+are the failure paths; both preserve the currently serving model.</figcaption>
+</figure>
+
+<h3 class="pagebreak">Deployment diagram</h3>
+
+<figure>
+<svg class="uml" width="820" height="600" viewBox="0 0 820 600" role="img"
+     aria-label="UML deployment diagram of DRG on Microsoft Azure">
+  <defs>
+    <marker id="dp-ar" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#52514e"/>
+    </marker>
+    <marker id="dp-id" markerWidth="9" markerHeight="9" refX="8" refY="3.2" orient="auto">
+      <path d="M0,0 L8,3.2 L0,6.4 z" fill="#1baf7a"/>
+    </marker>
+  </defs>
+  <style>
+    .nd  { fill:#f7f9fc; stroke:#4a3aa7; stroke-width:1.6; }
+    .art { fill:#fff; stroke:#2a78d6; stroke-width:1.3; }
+    .arts{ fill:#fff; stroke:#1baf7a; stroke-width:1.3; }
+    .nt  { font-size:10.6; font-weight:700; fill:#4a3aa7; }
+    .st  { font-size:8.6; fill:#898781; font-style:italic; }
+    .an  { font-size:10; font-weight:600; }
+    .ai  { font-size:8.6; fill:#52514e; }
+    .cn  { stroke:#52514e; stroke-width:1.3; fill:none; }
+  </style>
+
+  <!-- Azure subscription boundary -->
+  <rect x="14" y="52" width="792" height="470" rx="10" fill="none" stroke="#898781"
+        stroke-width="1.4" stroke-dasharray="8 5"/>
+  <text class="st" x="26" y="70" font-size="10">Azure subscription &#8212; resource group rg-drg-&lt;env&gt;, region UK South</text>
+
+  <!-- client -->
+  <rect class="nd" x="14" y="8" width="150" height="34" rx="4"/>
+  <text class="nt" x="89" y="24" text-anchor="middle">&#171;device&#187; Browser</text>
+  <text class="st" x="89" y="36" text-anchor="middle">planner workstation</text>
+
+  <!-- Container Apps environment -->
+  <rect class="nd" x="30" y="84" width="420" height="216" rx="6"/>
+  <text class="nt" x="42" y="104">&#171;execution environment&#187; Azure Container Apps</text>
+  <text class="st" x="42" y="116">managed environment cae-drg-&lt;env&gt;</text>
+
+  <rect class="art" x="46" y="128" width="188" height="52" rx="4"/>
+  <text class="an" x="140" y="146" text-anchor="middle">ca-drg-api</text>
+  <text class="ai" x="140" y="159" text-anchor="middle">FastAPI &#183; uvicorn &#183; port 8000</text>
+  <text class="ai" x="140" y="172" text-anchor="middle">min replicas 0 (scale to zero)</text>
+
+  <rect class="art" x="246" y="128" width="188" height="52" rx="4"/>
+  <text class="an" x="340" y="146" text-anchor="middle">ca-drg-dash</text>
+  <text class="ai" x="340" y="159" text-anchor="middle">Streamlit &#183; port 8501</text>
+  <text class="ai" x="340" y="172" text-anchor="middle">sticky sessions, 1-3 replicas</text>
+
+  <rect class="art" x="46" y="196" width="388" height="52" rx="4"/>
+  <text class="an" x="240" y="214" text-anchor="middle">cj-drg-pipeline &nbsp;&#171;scheduled job&#187;</text>
+  <text class="ai" x="240" y="227" text-anchor="middle">nightly cron 02:00 UTC &#183; 2 vCPU / 4 GiB</text>
+  <text class="ai" x="240" y="240" text-anchor="middle">runs ingest &#8594; train &#8594; stress &#8594; scenarios &#8594; SHAP</text>
+
+  <rect x="46" y="260" width="388" height="30" rx="4" fill="#f0faf6" stroke="#1baf7a" stroke-width="1.3"/>
+  <text class="ai" x="240" y="279" text-anchor="middle">volume /app/shared &#8594; Azure Files share drgdata (read/write)</text>
+
+  <!-- storage -->
+  <rect class="nd" x="480" y="84" width="310" height="126" rx="6"/>
+  <text class="nt" x="492" y="104">&#171;device&#187; Azure Storage (ADLS Gen2)</text>
+  <text class="st" x="492" y="116">HNS enabled &#183; TLS 1.2 &#183; no public blob access</text>
+  <rect class="art" x="494" y="124" width="130" height="72" rx="3"/>
+  <text class="an" x="559" y="146" text-anchor="middle">Blob containers</text>
+  <text class="ai" x="559" y="162" text-anchor="middle">raw &#183; processed</text>
+  <text class="ai" x="559" y="176" text-anchor="middle">external &#183; models</text>
+  <text class="ai" x="559" y="190" text-anchor="middle">reports</text>
+  <rect class="art" x="636" y="126" width="140" height="66" rx="3"/>
+  <text class="an" x="706" y="150" text-anchor="middle">File share</text>
+  <text class="ai" x="706" y="165" text-anchor="middle">drgdata (100 GiB)</text>
+  <text class="ai" x="706" y="180" text-anchor="middle">shared by all compute</text>
+
+  <!-- registry + vault -->
+  <rect class="nd" x="480" y="224" width="150" height="76" rx="6"/>
+  <text class="nt" x="492" y="244">&#171;device&#187; ACR</text>
+  <rect class="art" x="492" y="252" width="126" height="18" rx="3"/>
+  <text class="ai" x="555" y="265" text-anchor="middle">drg-api:&lt;tag&gt;</text>
+  <rect class="art" x="492" y="274" width="126" height="18" rx="3"/>
+  <text class="ai" x="555" y="287" text-anchor="middle">drg-dashboard / drg-pipeline</text>
+
+  <rect class="nd" x="644" y="224" width="146" height="76" rx="6"/>
+  <text class="nt" x="656" y="244">&#171;device&#187; Key Vault</text>
+  <text class="ai" x="656" y="262">RBAC authorisation</text>
+  <text class="ai" x="656" y="278">secret: openweather-key</text>
+  <text class="ai" x="656" y="294">referenced, never copied</text>
+
+  <!-- AML -->
+  <rect class="nd" x="30" y="322" width="420" height="118" rx="6"/>
+  <text class="nt" x="42" y="342">&#171;execution environment&#187; Azure Machine Learning</text>
+  <text class="st" x="42" y="354">workspace mlw-drg-&lt;env&gt; (optional)</text>
+  <rect class="art" x="46" y="364" width="126" height="60" rx="4"/>
+  <text class="an" x="109" y="384" text-anchor="middle">cpu-cluster</text>
+  <text class="ai" x="109" y="398" text-anchor="middle">0-2 nodes</text>
+  <text class="ai" x="109" y="412" text-anchor="middle">idle scale-down</text>
+  <rect class="art" x="184" y="364" width="126" height="60" rx="4"/>
+  <text class="an" x="247" y="384" text-anchor="middle">Model registry</text>
+  <text class="ai" x="247" y="398" text-anchor="middle">drg-champion</text>
+  <text class="ai" x="247" y="412" text-anchor="middle">versions + tags</text>
+  <rect class="arts" x="322" y="364" width="112" height="60" rx="4"/>
+  <text class="an" x="378" y="384" text-anchor="middle">Online endpoint</text>
+  <text class="ai" x="378" y="398" text-anchor="middle">drg-forecast</text>
+  <text class="ai" x="378" y="412" text-anchor="middle">blue / green slots</text>
+
+  <!-- observability -->
+  <rect class="nd" x="480" y="322" width="310" height="118" rx="6"/>
+  <text class="nt" x="492" y="342">&#171;device&#187; Azure Monitor</text>
+  <rect class="art" x="494" y="352" width="140" height="34" rx="3"/>
+  <text class="ai" x="564" y="373" text-anchor="middle">Log Analytics workspace</text>
+  <rect class="art" x="646" y="352" width="132" height="34" rx="3"/>
+  <text class="ai" x="712" y="373" text-anchor="middle">Application Insights</text>
+  <text class="ai" x="494" y="404">Container stdout plus structured application logs.</text>
+  <text class="ai" x="494" y="420">The logger attaches the Azure handler automatically</text>
+  <text class="ai" x="494" y="434">when the connection string is present.</text>
+
+  <!-- identity -->
+  <rect x="30" y="452" width="760" height="60" rx="6" fill="#f0faf6" stroke="#1baf7a" stroke-width="1.6"/>
+  <text class="an" x="42" y="472" fill="#1baf7a">&#171;security&#187; User-assigned managed identity &#8212; id-drg-&lt;env&gt;</text>
+  <text class="ai" x="42" y="494">AcrPull &#183; Storage Blob and File Data Contributor &#183; Key Vault Secrets User</text>
+  <text class="ai" x="42" y="504">No credential is stored in an app setting or in the repository.</text>
+
+  <!-- connections -->
+  <g class="cn">
+    <line x1="100" y1="42" x2="120" y2="126" marker-end="url(#dp-ar)"/>
+    <text class="ai" x="104" y="86" transform="rotate(76 104 86)">HTTPS</text>
+    <line x1="150" y1="42" x2="330" y2="126" marker-end="url(#dp-ar)"/>
+    <line x1="434" y1="152" x2="490" y2="140" marker-end="url(#dp-ar)"/>
+    <line x1="434" y1="222" x2="636" y2="160" marker-end="url(#dp-ar)"/>
+    <line x1="434" y1="252" x2="490" y2="262" marker-end="url(#dp-ar)"/>
+    <line x1="240" y1="248" x2="240" y2="318" marker-end="url(#dp-ar)"/>
+    <line x1="450" y1="392" x2="476" y2="392" marker-end="url(#dp-ar)"/>
+    <line x1="310" y1="394" x2="318" y2="394" marker-end="url(#dp-ar)"/>
+    <line x1="172" y1="394" x2="182" y2="394" marker-end="url(#dp-ar)"/>
+  </g>
+  <g class="cn" stroke="#1baf7a" stroke-dasharray="5 4">
+    <line x1="140" y1="454" x2="140" y2="184" marker-end="url(#dp-id)"/>
+    <line x1="560" y1="454" x2="560" y2="304" marker-end="url(#dp-id)"/>
+    <line x1="712" y1="454" x2="712" y2="304" marker-end="url(#dp-id)"/>
+  </g>
+
+  <text class="st" x="14" y="546" font-size="10">Deployment is fully described by infra/azure/main.bicep and its six modules; the template compiles</text>
+  <text class="st" x="14" y="562" font-size="10">to a validated ARM template with 8 outputs and 12 parameters. Images are built server-side by ACR</text>
+  <text class="st" x="14" y="578" font-size="10">Tasks, so no local Docker daemon is required on the deploying workstation.</text>
+</svg>
+<figcaption>Deployment diagram. The single shared Azure Files volume is the key topological choice:
+the batch job publishes data and models that the two services read immediately, removing a separate
+model-synchronisation step and its failure modes.</figcaption>
+</figure>
+
+<table class="t">
+  <caption>Deployment characteristics</caption>
+  <thead><tr><th style="width:44mm">Node</th><th style="width:26mm">Scaling</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>ca-drg-api</td><td>0-5 replicas</td><td>HTTP-concurrency scale rule at 40 requests; liveness and readiness probes on <code>/health</code>. Scale-to-zero accepted in exchange for cold-start latency (see NFR-03).</td></tr>
+    <tr><td>ca-drg-dash</td><td>1-3 replicas</td><td>Minimum one replica and sticky sessions, because Streamlit holds per-session state.</td></tr>
+    <tr><td>cj-drg-pipeline</td><td>1 replica, cron</td><td>Nightly full pipeline; 2 vCPU / 4 GiB is sized from the observed 145 s local run with headroom for the full licensed extract.</td></tr>
+    <tr><td>AML cpu-cluster</td><td>0-2 nodes</td><td>Idles at zero nodes; used when the licensed extract exceeds what the container job can process comfortably.</td></tr>
+    <tr><td>drg-forecast endpoint</td><td>1 instance / slot</td><td>Two slots exist only transiently during a release.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== 8. DATA ARCHITECTURE ==================== -->
+<div class="pagebreak"></div>
+<h2 class="sec">Data Architecture</h2>
+
+<h3>Data flow and lineage</h3>
+<p>Data moves through five persisted stages. Each is a typed columnar table, cached so that any stage
+can be re-run without repeating its predecessors, and each carries provenance forward.</p>
+
+<table class="t">
+  <caption>Persisted data products</caption>
+  <thead><tr><th style="width:46mm">Artifact</th><th style="width:22mm">Format</th><th>Content and grain</th></tr></thead>
+  <tbody>
+    <tr><td><code>neighbourhood_demand</code></td><td>Parquet</td><td>One row per (timestamp, neighbourhood). Cleaned half-hourly demand, household count, temperature, provenance.</td></tr>
+    <tr><td><code>weather_hourly</code></td><td>Parquet</td><td>Observed temperature aligned to the study index, with source tag.</td></tr>
+    <tr><td><code>carbon_intensity</code></td><td>Parquet</td><td>Half-hourly gCO2/kWh with a per-row provenance tag: measured, climatology-proxy or synthetic.</td></tr>
+    <tr><td><code>feature_table</code></td><td>Parquet</td><td>Model-ready design matrix, 47 numeric features plus identifiers and target.</td></tr>
+    <tr><td><code>best_model.joblib</code></td><td>joblib + JSON</td><td>Champion bundle: estimator, feature column order, training window, metrics.</td></tr>
+    <tr><td><code>run_report.json</code></td><td>JSON</td><td>The single machine-readable record of a run: data provenance, EDA summary, model metrics, stress statistics, electrification headlines, SHAP drivers.</td></tr>
+  </tbody>
+</table>
+
+<h3>Ingestion design</h3>
+<p>The published Low Carbon London half-hourly release is several gigabytes of CSV with the columns
+<code>LCLid, stdorToU, DateTime, KWH/hh (per half hour)</code>. Three design responses follow from
+constraint CN-02.</p>
+<ul>
+  <li><strong>Aggregate inside the read loop.</strong> Each chunk is grouped to
+      (timestamp, neighbourhood) before the next chunk is read, so peak memory is proportional to
+      <code>chunk_size</code>, not to the file.</li>
+  <li><strong>Stable grouping.</strong> Households map to neighbourhoods by a BLAKE2b hash of the
+      meter identifier modulo the group count. Unlike Python's built-in <code>hash()</code>, which
+      is salted per process, this is reproducible across runs and machines.</li>
+  <li><strong>Tolerant column resolution.</strong> The publisher's column spellings vary between
+      releases, so columns are matched case- and whitespace-insensitively with documented
+      fallbacks.</li>
+</ul>
+
+<h3>Data quality treatment</h3>
+<table class="t">
+  <caption>Cleaning rules and their justification</caption>
+  <thead><tr><th style="width:40mm">Rule</th><th style="width:30mm">Parameter</th><th>Justification</th></tr></thead>
+  <tbody>
+    <tr><td>Grid regularisation</td><td>30-minute index</td><td>Reindexing to a complete grid makes missingness explicit rather than implicit.</td></tr>
+    <tr><td>Robust outlier clipping</td><td>6 x MAD</td><td>Median absolute deviation is not itself distorted by the spikes it is meant to detect, unlike a standard-deviation rule.</td></tr>
+    <tr><td>Short-gap interpolation</td><td>&#8804; 6 periods, interior only</td><td>Meter communication losses of up to three hours are recoverable; longer gaps are not invented.</td></tr>
+    <tr><td>Day coverage filter</td><td>&#8805; 80% of 48 periods</td><td>A day with heavy missingness would understate its own peak and corrupt the percentile threshold.</td></tr>
+  </tbody>
+</table>
+
+<div class="note"><b>Provenance is a first-class column, not documentation</b>
+The carbon-intensity API archive begins in 2018, while the study period is 2011-2014. Rather than
+silently substituting or silently omitting, the client projects a month-by-half-hour climatology from
+a recent reference year and tags every row <code>climatology-proxy</code>. A reader of the data can
+therefore tell measurement from projection without consulting this document. The same discipline
+applies to temperature and to the demand table itself.</div>
+
+<!-- ==================== 9. ML ARCHITECTURE ==================== -->
+<h2 class="sec">Machine Learning Architecture</h2>
+
+<h3>Feature design</h3>
+<table class="t">
+  <caption>Feature groups</caption>
+  <thead><tr><th style="width:32mm">Group</th><th>Features</th><th style="width:44mm">Rationale</th></tr></thead>
+  <tbody>
+    <tr><td>Calendar</td><td>hour, half-hour period (0-47), day of week, month, season, week of year, weekend flag, UK bank-holiday flag, evening-peak flag</td><td>Domestic demand is driven by routine before it is driven by weather.</td></tr>
+    <tr><td>Cyclical</td><td>sin/cos of period, day of week and day of year</td><td>Gives linear models the same access to periodicity that trees obtain by splitting.</td></tr>
+    <tr><td>Lags</td><td>t-1, t-2, t-3, t-48 (yesterday), t-96, t-336 (last week)</td><td>Autoregressive structure; the weekly lag proves to be the dominant driver.</td></tr>
+    <tr><td>Rolling statistics</td><td>mean, standard deviation, min, max over 3 h, 1 day and 1 week</td><td>Local level and volatility, all computed on shifted values.</td></tr>
+    <tr><td>Dynamics</td><td>ramp rate, ramp acceleration, daily and weekly deltas, load factor</td><td>The rate of change discriminates the rising edge of the evening peak.</td></tr>
+    <tr><td>Exogenous</td><td>temperature, heating and cooling degrees, lagged and smoothed temperature, HDD x evening interaction, carbon intensity</td><td>Weather sensitivity is the channel through which heat-pump electrification will act.</td></tr>
+  </tbody>
+</table>
+
+<div class="ok"><b>Two invariants, both enforced by automated tests</b>
+Rolling statistics are computed from <code>shift(1)</code> values, so the current observation can
+never enter its own prediction; and every lag is computed within a neighbourhood group, so no
+information crosses site boundaries. These are the two ways a load-forecasting result is most
+commonly and most quietly invalidated.</div>
+
+<h3>Validation protocol</h3>
+<p>Splitting is chronological throughout: a training window, then a validation window used for early
+stopping, then a held-out test window of 60 days that no model sees during fitting. The champion is
+additionally subjected to rolling-origin cross-validation over five expanding windows, so that a
+favourable test period cannot masquerade as model quality.</p>
+
+<h3>Evaluation metrics</h3>
+<p>Accuracy metrics alone are insufficient for a stress application, so the evaluation reports three
+families.</p>
+<table class="t">
+  <caption>Metric families and why each is present</caption>
+  <thead><tr><th style="width:38mm">Family</th><th style="width:52mm">Metrics</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td>Accuracy</td><td>MAE, RMSE, MAPE, sMAPE, R&#178;, bias, P95 absolute error</td><td>Answers RQ1 and satisfies the proposal's stated metric set.</td></tr>
+    <tr><td>Peak-restricted accuracy</td><td>MAE, RMSE, MAPE over the 17:00-21:30 window</td><td>Average accuracy can hide poor performance exactly where the application needs it.</td></tr>
+    <tr><td>Stress-alarm skill</td><td>Precision, recall, F1 against the P95 threshold</td><td>Treats the forecast as the alarm it will actually be used as.</td></tr>
+  </tbody>
+</table>
+
+<h3>Model selection and serving</h3>
+<p>The ladder exists so the headline number carries meaning: a 3.37% MAPE is informative only against
+the 7.66% that a seasonal-naive rule achieves on the same window. Gradient boosting was selected as
+the primary model (AD-02) because the target responds to sharp, threshold-like interactions and
+because TreeSHAP provides exact attribution at negligible cost.</p>
+<p>One serving constraint is deliberate and visible in the code: the model actually deployed is
+always a tabular estimator, because the serving contract is a design matrix. If a sequence model
+scores better, the trainer logs that fact explicitly and still serves the tabular champion, rather
+than silently persisting an artefact the API cannot call.</p>
+
+<h3>Explainability</h3>
+<p>Two SHAP views are produced. The global view ranks drivers over a sample of the test window. The
+stress-conditional view repeats the analysis restricted to observations above the stress threshold -
+which is the view a network planner needs, because it answers "what drives the half-hours I care
+about" rather than "what drives demand on average". A kernel explainer covers non-tree models.</p>
+
+<h3>Model lifecycle and release control</h3>
+<p>Retraining is scheduled; release is gated. The promotion gate applies absolute floors that a model
+must meet regardless of the incumbent, and relative comparisons against the currently deployed model.
+Two design choices in the gate are worth stating explicitly.</p>
+<ul>
+  <li><strong>Stress recall is gated harder than precision.</strong> A missed stress period is a
+      missed reinforcement signal; a false alarm costs a glance at a dashboard. The asymmetry in the
+      thresholds encodes that asymmetry in consequence.</li>
+  <li><strong>A missing metric is a failure, not a pass.</strong> The most dangerous gate is one that
+      approves a model because a metric was absent.</li>
+</ul>
+<p>Gate metrics are written onto the registered model as tags, so the next release finds its
+incumbent without a separate metrics store to keep synchronised.</p>
+
+<!-- ==================== 10. SECURITY ==================== -->
+<div class="pagebreak"></div>
+<h2 class="sec">Security, Governance and Compliance</h2>
+
+<h3>Data governance</h3>
+<table class="t">
+  <caption>Governance controls</caption>
+  <thead><tr><th style="width:44mm">Obligation</th><th>Control implemented</th></tr></thead>
+  <tbody>
+    <tr><td>UK Data Service End User Licence</td><td>Raw smart-meter data is never committed to source control (<code>data/raw/</code> is version-control ignored) and is never transmitted to a public service by this code. Ingestion is designed to run where the data already resides.</td></tr>
+    <tr><td>No personal data processing</td><td>The source extract is anonymised at issue; DRG aggregates further, to groups of roughly 120 households, before any analysis. No output is attributable to a household.</td></tr>
+    <tr><td>Redistribution</td><td>The repository is runnable without the licensed data through a calibrated synthetic generator that contains no real household record, which is what makes the work shareable and reviewable.</td></tr>
+    <tr><td>Data residency</td><td>All Azure resources are provisioned in a single UK region by default.</td></tr>
+    <tr><td>Retention</td><td>Blob soft-delete is enabled for seven days; log retention defaults to thirty days.</td></tr>
+  </tbody>
+</table>
+
+<h3>Identity and secrets</h3>
+<ul>
+  <li>A single <strong>user-assigned managed identity</strong> carries every workload permission:
+      registry pull, storage data access and Key Vault secret retrieval. No service-principal
+      credential is stored in an application setting or in the repository.</li>
+  <li>CI/CD authenticates to Azure with <strong>OIDC federated credentials</strong>; the repository
+      holds only a client, tenant and subscription identifier, none of which is a secret capable of
+      authenticating on its own.</li>
+  <li>The one API key the system may use (OpenWeatherMap) is held in Key Vault and referenced by the
+      container app, never copied into configuration. When no key is supplied the Key Vault
+      reference is not created at all, so the deployment does not carry a dangling secret
+      reference.</li>
+</ul>
+
+<h3>Platform hardening</h3>
+<table class="t">
+  <caption>Applied platform controls</caption>
+  <thead><tr><th style="width:44mm">Control</th><th>Setting</th></tr></thead>
+  <tbody>
+    <tr><td>Container user</td><td>All three images run as a non-root user (uid 10001).</td></tr>
+    <tr><td>Transport</td><td>HTTPS enforced on ingress; <code>allowInsecure: false</code>; storage requires TLS 1.2 and HTTPS-only traffic.</td></tr>
+    <tr><td>Public data exposure</td><td>Blob public access disabled; anonymous registry pull disabled; registry admin user disabled.</td></tr>
+    <tr><td>Key Vault</td><td>RBAC authorisation rather than access policies; soft-delete enabled.</td></tr>
+    <tr><td>Health gating</td><td>Liveness and readiness probes prevent traffic reaching an unhealthy replica.</td></tr>
+    <tr><td>Release safety</td><td>Model releases are gated, staged at zero traffic, verified and reversible; deployment concurrency is configured never to cancel a run mid-traffic-shift.</td></tr>
+  </tbody>
+</table>
+
+<div class="warn"><b>Residual risk accepted</b>
+The storage account key is required by the Azure Files volume mount and is therefore present in the
+deployment template as a secure parameter. This is a platform constraint of Container Apps file
+mounts rather than a design choice. It is mitigated by keeping the key out of application settings,
+by restricting the account to a single resource group, and by soft-delete. Migrating the mount to an
+identity-based protocol should be revisited when the platform supports it.</div>
+
+<!-- ==================== 11. NFRs ==================== -->
+<h2 class="sec">Non-Functional Requirements and Their Realisation</h2>
+
+<table class="t">
+  <caption>Non-functional requirements, design response and observed evidence</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:26mm">Quality</th><th style="width:56mm">Requirement</th><th>Design response and evidence</th></tr></thead>
+  <tbody>
+    <tr><td class="id">NFR-01</td><td>Performance (batch)</td><td>A full analysis run completes within one hour on commodity hardware.</td><td>Chunked ingest, cached stages, vectorised simulation. <strong>Observed: 145 s</strong> end to end on a four-neighbourhood, 26-month dataset.</td></tr>
+    <tr><td class="id">NFR-02</td><td>Memory</td><td>Runs within 8 GB RAM.</td><td>Aggregation inside the ingest loop; columnar storage; no whole-dataset materialisation.</td></tr>
+    <tr><td class="id">NFR-03</td><td>Latency (interactive)</td><td>Scenario evaluation returns within a few seconds; forecast endpoints respond promptly.</td><td>Vectorised simulation over a bounded window; artifacts cached behind an in-process cache. Cold start is accepted as the cost of scale-to-zero and is removable by setting minimum replicas to one.</td></tr>
+    <tr><td class="id">NFR-04</td><td>Accuracy</td><td>The primary model materially outperforms a seasonal-naive benchmark.</td><td><strong>Observed: MAPE 3.37% versus 7.66%</strong>; RMSE 0.95 versus 2.08; stress-alarm F1 0.90 versus 0.85.</td></tr>
+    <tr><td class="id">NFR-05</td><td>Reproducibility</td><td>Identical inputs produce identical outputs.</td><td>Every stochastic component is explicitly seeded, including a process-stable per-site seed derived by CRC32 rather than by the salted built-in hash. Asserted by test.</td></tr>
+    <tr><td class="id">NFR-06</td><td>Reliability</td><td>No external dependency can stop a run.</td><td>Retry with exponential backoff, disk caching, and documented degradation for every external call; offline execution is a supported and tested mode.</td></tr>
+    <tr><td class="id">NFR-07</td><td>Observability</td><td>Deployed components are diagnosable without access to the host.</td><td>Structured logging that attaches an Application Insights handler automatically when the connection string is present; container logs shipped to Log Analytics.</td></tr>
+    <tr><td class="id">NFR-08</td><td>Testability</td><td>Core analytics are verifiable offline and quickly.</td><td>Domain layer free of I/O and framework dependencies. <strong>Observed: 103 automated tests in about 36 seconds</strong>, fully offline.</td></tr>
+    <tr><td class="id">NFR-09</td><td>Maintainability</td><td>Consistent, statically checked code.</td><td>Enforced lint and format in continuous integration; typed configuration; a single documented feature builder.</td></tr>
+    <tr><td class="id">NFR-10</td><td>Portability</td><td>Runs on Windows, Linux and in a container without code change.</td><td>Path abstraction, no shell dependencies in the library, three container images, and a documented fallback when platform-native binaries for the deep model are unavailable.</td></tr>
+    <tr><td class="id">NFR-11</td><td>Accessibility</td><td>Visual outputs remain readable in greyscale and with colour-vision deficiency.</td><td>A validated categorical palette with checked separation, status conveyed by icon and label as well as colour, single y-axes, and a data table beside every chart.</td></tr>
+    <tr><td class="id">NFR-12</td><td>Cost</td><td>Cloud running cost remains modest for a research deployment.</td><td>Scale-to-zero API, serverless job scheduling, an ML cluster that idles at zero nodes; estimated USD 60-110 per month at development tier.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== 12. TECH STACK ==================== -->
+<h2 class="sec">Technology Stack</h2>
+
+<table class="t">
+  <caption>Selected technologies and the reason for each</caption>
+  <thead><tr><th style="width:32mm">Layer</th><th style="width:52mm">Technology</th><th>Reason for selection</th></tr></thead>
+  <tbody>
+    <tr><td>Language</td><td>Python 3.10-3.12</td><td>The scientific and ML ecosystem the analysis depends on; matches the stated system requirements.</td></tr>
+    <tr><td>Data processing</td><td>pandas, NumPy, PyArrow</td><td>Columnar Parquet keeps intermediate tables compact and typed; chunked CSV reading is native.</td></tr>
+    <tr><td>Modelling</td><td>scikit-learn, XGBoost, PyTorch (optional)</td><td>Baselines, the gradient-boosted primary model and an optional deep sequence extension.</td></tr>
+    <tr><td>Explainability</td><td>SHAP (TreeSHAP)</td><td>Exact attribution for tree ensembles at low cost; kernel fallback for other model families.</td></tr>
+    <tr><td>Service</td><td>FastAPI, Uvicorn, Pydantic</td><td>Typed request validation and generated OpenAPI documentation with minimal code.</td></tr>
+    <tr><td>Interface</td><td>Streamlit, Plotly</td><td>Rapid delivery of an interactive analytical interface without a separate front-end build.</td></tr>
+    <tr><td>CLI</td><td>Typer, Rich</td><td>A discoverable command surface over the same stage functions the pipeline uses.</td></tr>
+    <tr><td>Configuration</td><td>YAML with environment overrides</td><td>One source of truth for scientific parameters; overridable per environment without code change.</td></tr>
+    <tr><td>Testing</td><td>pytest</td><td>Fast, offline, and expressive enough to assert physical properties as well as software behaviour.</td></tr>
+    <tr><td>Quality</td><td>ruff, black</td><td>Deterministic formatting and linting enforced in continuous integration.</td></tr>
+    <tr><td>Packaging</td><td>Docker (three images)</td><td>Separate API, dashboard and pipeline images so each scales and fails independently.</td></tr>
+    <tr><td>Infrastructure</td><td>Azure Bicep</td><td>Declarative, reviewable and idempotent; compiles to a validated ARM template.</td></tr>
+    <tr><td>Hosting</td><td>Azure Container Apps</td><td>Scale-to-zero services and a native scheduled job type without a cluster to operate.</td></tr>
+    <tr><td>ML platform</td><td>Azure ML (optional)</td><td>Managed training, MLflow tracking, versioned model registry and a blue/green online endpoint.</td></tr>
+    <tr><td>CI/CD</td><td>GitHub Actions with OIDC</td><td>Separate application and model pipelines; no long-lived credential in the repository.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== 13. RISKS ==================== -->
+<h2 class="sec">Risks, Limitations and Future Work</h2>
+
+<h3>Architectural risks</h3>
+<table class="t">
+  <caption>Risk register (architectural)</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:52mm">Risk</th><th style="width:18mm" class="c">Impact</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr><td class="id">RA-01</td><td>Statistical stress is mistaken for an engineering assessment of asset capability</td><td class="c">High</td><td>Stated in the aim, on the dashboard footer, in this document and in the repository README. The system reports exceedance of a demand distribution, never of a rating.</td></tr>
+    <tr><td class="id">RA-02</td><td>Scenario parameters drive headline numbers and could be set to flatter a conclusion</td><td class="c">High</td><td>Parameters are configuration, not code; defaults are justified against published planning figures; every scenario reports ADMD and energy per vehicle per day so a reviewer can audit them.</td></tr>
+    <tr><td class="id">RA-03</td><td>Public API terms change or a service is withdrawn</td><td class="c">Medium</td><td>Clients are isolated behind an interface with documented fallbacks; no pipeline stage fails on an unavailable API.</td></tr>
+    <tr><td class="id">RA-04</td><td>Concept drift: historical thresholds become unrepresentative</td><td class="c">Medium</td><td>Scheduled retraining, gated on stress recall against the incumbent, which surfaces degradation rather than absorbing it.</td></tr>
+    <tr><td class="id">RA-05</td><td>Hash-derived neighbourhoods cannot be mapped to physical assets</td><td class="c">Medium</td><td>Documented as assumption AS-01; the grouping function is a single injection point should feeder identifiers become available.</td></tr>
+    <tr><td class="id">RA-06</td><td>Platform-native ML binaries unavailable on an analyst workstation</td><td class="c">Low</td><td>Import guarded broadly; a scikit-learn sequence network substitutes automatically so the neural arm of the study remains executable.</td></tr>
+  </tbody>
+</table>
+
+<h3>Stated limitations</h3>
+<ol>
+  <li><strong>No power-flow modelling.</strong> Stress is statistical. Reinforcement decisions require
+      asset ratings and topology that the dataset does not contain.</li>
+  <li><strong>Carbon intensity before 2018 is a projection, not a measurement.</strong> It is tagged
+      as such and contributes under one per cent of model attribution.</li>
+  <li><strong>Neighbourhood groups are hash-derived,</strong> not geographic feeders.</li>
+  <li><strong>Only uncontrolled charging is modelled.</strong> Smart tariffs and managed charging
+      would flatten the reported peaks substantially; the reported figures are therefore an upper
+      bound on unmanaged electrification, which is the appropriate planning case but not a forecast
+      of what will occur.</li>
+  <li><strong>The reference results in this document were produced on the calibrated fallback
+      dataset.</strong> The pipeline, thresholds and simulation are unchanged when the licensed
+      extract is supplied, but absolute figures will differ.</li>
+</ol>
+
+<h3>Future work</h3>
+<table class="t">
+  <caption>Prioritised extensions</caption>
+  <thead><tr><th style="width:14mm">Ref</th><th style="width:52mm">Extension</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td class="id">FW-01</td><td>Managed and smart-tariff charging profiles</td><td>Quantifies how much of the modelled peak amplification flexibility can remove - the natural policy question following from this work.</td></tr>
+    <tr><td class="id">FW-02</td><td>Probabilistic forecasting (quantile or interval outputs)</td><td>Stress is a tail phenomenon; a predictive distribution serves it better than a point forecast.</td></tr>
+    <tr><td class="id">FW-03</td><td>Feeder-level mapping where identifiers exist</td><td>Converts a statistical signal into an asset-addressable one.</td></tr>
+    <tr><td class="id">FW-04</td><td>Solar PV and battery export modelling</td><td>Completes the local energy balance; requires export-capable metering data.</td></tr>
+    <tr><td class="id">FW-05</td><td>Drift monitoring on live inputs</td><td>Detects covariate shift between scheduled retraining cycles.</td></tr>
+  </tbody>
+</table>
+
+<!-- ==================== APPENDICES ==================== -->
+<div class="pagebreak"></div>
+<h2 class="sec">Appendix A - Repository Map</h2>
+
+<table class="t">
+  <caption>Source layout and responsibilities</caption>
+  <thead><tr><th style="width:56mm">Path</th><th>Responsibility</th></tr></thead>
+  <tbody>
+    <tr><td><code>configs/config.yaml</code></td><td>Single source of truth for every scientific and operational parameter.</td></tr>
+    <tr><td><code>src/drg/config.py</code></td><td>Typed configuration: YAML plus environment overrides, with resolved paths.</td></tr>
+    <tr><td><code>src/drg/data/</code></td><td>Chunked LCL loader, calibrated synthetic generator, public API clients.</td></tr>
+    <tr><td><code>src/drg/features/</code></td><td>The single feature builder shared by training and serving.</td></tr>
+    <tr><td><code>src/drg/models/</code></td><td>Baselines, gradient boosting, deep and torch-free neural models, evaluation, bundle registry, training orchestration.</td></tr>
+    <tr><td><code>src/drg/stress/</code></td><td>Threshold computation, flagging, event extraction, summaries and profiles.</td></tr>
+    <tr><td><code>src/drg/simulation/</code></td><td>Bottom-up EV and heat-pump models and scenario application.</td></tr>
+    <tr><td><code>src/drg/analysis/</code></td><td>Exploratory analysis figures; adoption sensitivity grid and elasticity.</td></tr>
+    <tr><td><code>src/drg/explain/</code></td><td>Global and stress-conditional SHAP attribution.</td></tr>
+    <tr><td><code>src/drg/streaming/</code></td><td>Pull-based replay engine with pre-emptive alerting.</td></tr>
+    <tr><td><code>src/drg/mlops/</code></td><td>Promotion gate: thresholds, decision logic and reporting.</td></tr>
+    <tr><td><code>src/drg/api/</code>, <code>src/drg/dashboard/</code></td><td>REST service; Streamlit dashboard and its chart theme.</td></tr>
+    <tr><td><code>pipelines/</code></td><td>Azure ML entry point, online scoring script, promotion CLI, endpoint verifier, model spec generator.</td></tr>
+    <tr><td><code>infra/azure/</code>, <code>infra/aml/</code></td><td>Bicep infrastructure modules; Azure ML environment, job, endpoint and deployment definitions.</td></tr>
+    <tr><td><code>docker/</code>, <code>.github/workflows/</code></td><td>Three container images; continuous integration, application deployment and model deployment pipelines.</td></tr>
+    <tr><td><code>tests/</code></td><td>103 offline tests covering data, features, models, stress, simulation, streaming, API, dashboard, MLOps and workflow contracts.</td></tr>
+  </tbody>
+</table>
+
+<h2 class="sec">Appendix B - Service Interface Reference</h2>
+
+<table class="t">
+  <caption>REST endpoints</caption>
+  <thead><tr><th style="width:14mm">Method</th><th style="width:34mm">Path</th><th>Purpose and notable behaviour</th></tr></thead>
+  <tbody>
+    <tr><td>GET</td><td><code>/health</code></td><td>Liveness and readiness, including whether data and model artifacts are present. Used by the container probes.</td></tr>
+    <tr><td>GET</td><td><code>/context</code></td><td>Live temperature and grid carbon intensity for the modelled location.</td></tr>
+    <tr><td>GET</td><td><code>/neighbourhoods</code></td><td>Configured sites with household counts, thresholds and data coverage.</td></tr>
+    <tr><td>GET</td><td><code>/forecast</code></td><td>Rolling one-step-ahead forecasts with severity, headroom and alert flags.</td></tr>
+    <tr><td>GET</td><td><code>/stress</code></td><td>Historical stress summary and recent events.</td></tr>
+    <tr><td>POST</td><td><code>/scenario</code></td><td>On-demand scenario evaluation. Adoption is bounded to [0, 1] and charger rating to 22 kW by request validation.</td></tr>
+    <tr><td>GET</td><td><code>/sensitivity</code></td><td>Cached adoption grid and headline amplification figures.</td></tr>
+    <tr><td>GET</td><td><code>/explain</code></td><td>SHAP driver ranking, globally and during stress.</td></tr>
+    <tr><td>GET</td><td><code>/metrics</code></td><td>Model evaluation metrics for the current champion.</td></tr>
+  </tbody>
+</table>
+
+<div class="note"><b>Error contract</b>
+When a required artifact is absent the service returns HTTP 503 with the exact command that produces
+it, for example <code>Processed demand not found. Run: python -m drg.cli ingest</code>. An error
+message that tells the operator what to do next is part of the interface, not an afterthought.</div>
+
+<p style="margin-top:8mm; padding-top:3mm; border-top:1px solid var(--grid); font-size:9pt; color:var(--ink2);">
+<strong>End of document</strong> &nbsp;&#183;&nbsp; DRG-SAD-001 v1.0 &nbsp;&#183;&nbsp; 28 August 2026
+&nbsp;&#183;&nbsp; Companion document: DRG-BRD-001 Business Requirements Document</p>
+
+</body>
+</html>
