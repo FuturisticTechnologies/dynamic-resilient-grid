@@ -1,0 +1,22 @@
+timestamp,channel,username,message
+1737126000,#drg-releases,devendranath.singam,"[DRG-22] Tag v0.1.0. Repository scaffold, dependency tiers, LCL loader. No CI yet - that is sprint 3."
+1738339200,#drg-releases,devendranath.singam,"[DRG-24] Tag v0.2.0. Synthetic generator, CLI with run-all, config and logging. A clean clone now produces a full run with no dataset."
+1739545200,#drg-releases,devendranath.singam,"[DRG-30] CI is green and merging is now gated on it. Full pipeline on synthetic data, four minutes."
+1741968000,#drg-releases,devendranath.singam,"[DRG-1] Tag v0.3.0. Data contract, neighbourhood aggregation, quality checks, container images. Data foundations complete."
+1745595000,#drg-releases,devendranath.singam,[DRG-39] Tag v0.4.0. Consumption analysis and the figure set. Every figure in the design document now regenerates from run-all.
+1749225600,#drg-releases,devendranath.singam,"[DRG-3] Tag v0.5.0. Feature engineering complete: calendar, cyclical, lags, rolling, weather, and the split contract."
+1751297400,#drg-releases,devendranath.singam,[DRG-55] Tag v0.6.0. Baselines and the evaluation harness. Naive at 1.54 MAE is the bar everything else is measured against.
+1753459200,#drg-releases,devendranath.singam,"[DRG-59] Tag v0.7.0. XGBoost at 0.70 MAE, 0.986 R squared. Primary model selected."
+1759246200,#drg-releases,devendranath.singam,[DRG-66] Tag v0.8.0. Model ladder complete including the deep models and the torch-free fallback. The fallback is automatic and reported.
+1764950400,#drg-releases,devendranath.singam,"[DRG-5] Tag v0.9.0. Stress detection: per-site thresholds, event detection, frequency and duration, alarm F1."
+1770998400,#drg-releases,devendranath.singam,"[DRG-6] Tag v1.0.0. Electrification scenarios complete, including the diversity result. First release that answers all four of the analytical proposal objectives."
+1774627200,#drg-releases,devendranath.singam,"[DRG-9] Tag v1.1.0. Replay engine and external feeds, both deterministic and both degrading gracefully."
+1777042800,#drg-releases,devendranath.singam,[DRG-7] Tag v1.2.0. Sensitivity analysis. Objective 5 answered.
+1779465600,#drg-releases,devendranath.singam,"[DRG-8] Tag v1.3.0. SHAP explanations, global and stress-specific. Objective 6 answered."
+1781883000,#drg-releases,devendranath.singam,"[DRG-10] Tag v1.4.0. REST API with forecast, stress, scenario and explanation endpoints, all versioned."
+1784037600,#drg-releases,devendranath.singam,"[DRG-103] Hotfix: model version now on every API response, with a contract test across all routes."
+1784908800,#drg-releases,devendranath.singam,"[DRG-106] Tag v1.5.0. Model registry and promotion gate. From here, a model reaches the API by passing the gate rather than by being the most recent thing trained."
+1785335400,#drg-releases,divya.maram,[DRG-110] Hotfix: dashboard cache key includes the full selection. The neighbourhood switch bug is fixed and covered.
+1785514800,#drg-releases,devendranath.singam,"CI now runs the full pipeline on synthetic data on every push, about seven minutes. Closing DRG-14 - eighteen months of engineering practice work, and the run-all decision from week three is still paying for itself."
+1786719600,#drg-releases,devendranath.singam,"[DRG-111] Tag v1.6.0. Azure infrastructure as Bicep, deployed to non-production. Twenty months on laptops is over."
+1787931000,#drg-releases,devendranath.singam,[DRG-112] Tag v1.7.0. AML training job and the replay page. Managed endpoint is behind it.
