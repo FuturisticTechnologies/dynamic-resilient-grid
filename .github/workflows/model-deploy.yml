@@ -1,0 +1,435 @@
+name: Model train, gate and deploy
+
+# ---------------------------------------------------------------------------
+# MLOps pipeline for the DRG forecaster, separate from application deployment:
+#
+#   train (Azure ML) -> promotion gate -> register -> blue/green deploy
+#   -> endpoint smoke test -> shift traffic -> retire the old slot
+#
+# Nothing reaches production traffic without clearing the gate in
+# src/drg/mlops/gate.py and passing a live scoring smoke test. Any failure
+# after the new slot is created rolls back by deleting it and leaving the
+# incumbent on 100% of traffic.
+# ---------------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"          # weekly retrain, Monday 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+      skipTraining:
+        description: Skip training and promote the latest registered model
+        type: boolean
+        default: false
+      allowSynthetic:
+        description: Allow promoting a model trained on the synthetic fallback (demo only)
+        type: boolean
+        default: false
+      dryRun:
+        description: Run the gate and report, but do not deploy
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write                # OIDC federated credential -- no stored secrets
+  contents: read
+
+env:
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-drg-dev' }}
+  ENVIRONMENT_NAME: ${{ inputs.environment || 'dev' }}
+  NAME_PREFIX: drg
+  MODEL_NAME: drg-champion
+  ENDPOINT_NAME: drg-forecast
+
+concurrency:
+  group: model-deploy-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false      # never interrupt a deployment mid-traffic-shift
+
+jobs:
+  # =========================================================================
+  # 1. Train on Azure ML compute
+  # =========================================================================
+  train:
+    name: Train on Azure ML
+    runs-on: ubuntu-latest
+    outputs:
+      jobName: ${{ steps.submit.outputs.jobName }}
+      skipped: ${{ steps.submit.outputs.skipped }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install the ML extension
+        run: az extension add --name ml --upgrade --only-show-errors
+
+      - name: Submit the training job and wait
+        id: submit
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+
+          if [[ "${{ inputs.skipTraining }}" == "true" ]]; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "Training skipped by request; gating the latest registered model."
+            exit 0
+          fi
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+
+          az ml environment create -f infra/aml/environment.yml \
+            -g "$AZURE_RESOURCE_GROUP" -w "$WS" --only-show-errors || \
+            echo "environment already current"
+
+          JOB=$(az ml job create -f infra/aml/train-job.yml \
+                  -g "$AZURE_RESOURCE_GROUP" -w "$WS" \
+                  --query name -o tsv)
+          echo "jobName=$JOB" >> "$GITHUB_OUTPUT"
+          echo "Submitted $JOB - streaming until it finishes"
+
+          az ml job stream --name "$JOB" -g "$AZURE_RESOURCE_GROUP" -w "$WS" || true
+
+          STATUS=$(az ml job show --name "$JOB" -g "$AZURE_RESOURCE_GROUP" -w "$WS" \
+                     --query status -o tsv)
+          echo "Final status: $STATUS"
+          [[ "$STATUS" == "Completed" ]] || { echo "Training job did not complete"; exit 1; }
+
+      - name: Download the run artifacts
+        if: steps.submit.outputs.skipped != 'true'
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          az ml job download --name "${{ steps.submit.outputs.jobName }}" \
+            -g "$AZURE_RESOURCE_GROUP" -w "$WS" \
+            --output-name artifacts --download-path ./job-output
+          find ./job-output -name "run_report.json" -o -name "model_metrics.json" | head
+
+      - uses: actions/upload-artifact@v4
+        if: steps.submit.outputs.skipped != 'true'
+        with:
+          name: training-run
+          path: ./job-output
+          retention-days: 30
+
+  # =========================================================================
+  # 2. Promotion gate
+  # =========================================================================
+  gate:
+    name: Promotion gate
+    runs-on: ubuntu-latest
+    needs: train
+    outputs:
+      promote: ${{ steps.gate.outputs.promote }}
+      reason: ${{ steps.gate.outputs.reason }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyYAML python-dotenv
+          pip install --no-deps -e .
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install the ML extension
+        run: az extension add --name ml --upgrade --only-show-errors
+
+      - uses: actions/download-artifact@v4
+        if: needs.train.outputs.skipped != 'true'
+        with:
+          name: training-run
+          path: ./job-output
+
+      - name: Locate the candidate metrics
+        id: candidate
+        run: |
+          set -euo pipefail
+          FILE=$(find ./job-output -name "run_report.json" | head -1 || true)
+          if [[ -z "$FILE" ]]; then
+            FILE=$(find ./job-output -name "model_metrics.json" | head -1 || true)
+          fi
+          [[ -n "$FILE" ]] || { echo "No metrics artifact found from the training job"; exit 1; }
+          echo "path=$FILE" >> "$GITHUB_OUTPUT"
+          echo "Using $FILE"
+
+      - name: Fetch the incumbent model metrics
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          # The incumbent is whatever the endpoint currently serves; before the
+          # first deployment there is none, and the gate falls back to absolute
+          # checks only.
+          if az ml online-endpoint show -n "$ENDPOINT_NAME" \
+               -g "$AZURE_RESOURCE_GROUP" -w "$WS" --only-show-errors >/dev/null 2>&1; then
+            az ml model show --name "$MODEL_NAME" --label latest \
+              -g "$AZURE_RESOURCE_GROUP" -w "$WS" \
+              --query tags -o json > incumbent.json 2>/dev/null || echo '{}' > incumbent.json
+          else
+            echo '{}' > incumbent.json
+            echo "No endpoint yet - this is the first deployment."
+          fi
+          cat incumbent.json
+
+      - name: Evaluate the gate
+        id: gate
+        run: |
+          python pipelines/promote_model.py \
+            --candidate "${{ steps.candidate.outputs.path }}" \
+            --incumbent incumbent.json \
+            --tags-out model_tags.json \
+            --decision-out gate_decision.json \
+            --git-sha "$GITHUB_SHA" \
+            ${{ inputs.allowSynthetic && '--allow-synthetic' || '' }} \
+            ${{ inputs.dryRun && '--force' || '' }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: promotion-gate
+          path: |
+            gate_decision.json
+            model_tags.json
+            incumbent.json
+
+  # =========================================================================
+  # 3. Register and blue/green deploy
+  # =========================================================================
+  deploy:
+    name: Register and deploy
+    runs-on: ubuntu-latest
+    needs: [train, gate]
+    if: needs.gate.outputs.promote == 'true' && inputs.dryRun != true
+    environment: ${{ inputs.environment || 'dev' }}   # approval gate for prod
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyYAML python-dotenv
+          pip install --no-deps -e .
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install the ML extension
+        run: az extension add --name ml --upgrade --only-show-errors
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: promotion-gate
+
+      - uses: actions/download-artifact@v4
+        if: needs.train.outputs.skipped != 'true'
+        with:
+          name: training-run
+          path: ./job-output
+
+      # ---------------------------------------------------------------- register
+      - name: Register the model version
+        id: register
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+
+          if [[ "${{ needs.train.outputs.skipped }}" == "true" ]]; then
+            VERSION=$(az ml model show --name "$MODEL_NAME" --label latest                         -g "$AZURE_RESOURCE_GROUP" -w "$WS" --query version -o tsv)
+            echo "Reusing registered version $VERSION"
+          else
+            MODEL_FILE=$(find ./job-output -name "best_model.joblib" | head -1)
+            [[ -n "$MODEL_FILE" ]] || { echo "No best_model.joblib in the job output"; exit 1; }
+
+            # gate metrics travel with the model as tags, so the next run has an
+            # incumbent to compare against
+            python pipelines/make_model_spec.py               --name "$MODEL_NAME"               --path "$(dirname "$MODEL_FILE")"               --tags model_tags.json               --out model-spec.yml
+            cat model-spec.yml
+
+            VERSION=$(az ml model create -f model-spec.yml                         -g "$AZURE_RESOURCE_GROUP" -w "$WS"                         --query version -o tsv)
+            echo "Registered $MODEL_NAME version $VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------------- endpoint
+      - name: Ensure the endpoint exists
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          if ! az ml online-endpoint show -n "$ENDPOINT_NAME" \
+                 -g "$AZURE_RESOURCE_GROUP" -w "$WS" --only-show-errors >/dev/null 2>&1; then
+            echo "Creating endpoint $ENDPOINT_NAME"
+            az ml online-endpoint create -f infra/aml/endpoint.yml \
+              -g "$AZURE_RESOURCE_GROUP" -w "$WS" --only-show-errors
+          fi
+
+      - name: Choose the target slot (blue/green)
+        id: slot
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          az ml online-endpoint show -n "$ENDPOINT_NAME"             -g "$AZURE_RESOURCE_GROUP" -w "$WS" --query traffic -o json > traffic.json
+          cat traffic.json
+
+          # a block scalar cannot contain column-0 lines, so keep this a one-liner
+          LIVE=$(python -c "import json;t=json.load(open('traffic.json')) or {};l=[k for k,v in t.items() if int(v)>0];print(l[0] if l else '')")
+          if [[ "$LIVE" == "blue" ]]; then NEW=green; else NEW=blue; fi
+          echo "live=$LIVE" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW"   >> "$GITHUB_OUTPUT"
+          echo "Deploying into '$NEW' (live slot: '${LIVE:-none}')"
+
+      - name: Create the new deployment with zero traffic
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          az ml online-deployment create -f infra/aml/deployment.yml \
+            -g "$AZURE_RESOURCE_GROUP" -w "$WS" \
+            --set name=${{ steps.slot.outputs.new }} \
+                  model=azureml:${MODEL_NAME}:${{ steps.register.outputs.version }} \
+            --only-show-errors
+          echo "Deployment ${{ steps.slot.outputs.new }} created with 0% traffic"
+
+      # ---------------------------------------------------------------- verify
+      - name: Smoke-test the new deployment
+        id: smoke
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          START=$(date +%s%3N)
+          az ml online-endpoint invoke -n "$ENDPOINT_NAME" \
+            --deployment-name ${{ steps.slot.outputs.new }} \
+            --request-file infra/aml/sample-request.json \
+            -g "$AZURE_RESOURCE_GROUP" -w "$WS" > response.json
+          END=$(date +%s%3N)
+          cat response.json
+
+          python pipelines/verify_endpoint.py \
+            --response response.json \
+            --request infra/aml/sample-request.json \
+            --latency-ms $((END - START))
+
+      # ---------------------------------------------------------------- cutover
+      - name: Shift 100% of traffic to the new deployment
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          NEW=${{ steps.slot.outputs.new }}
+          LIVE=${{ steps.slot.outputs.live }}
+          if [[ -n "$LIVE" ]]; then
+            az ml online-endpoint update -n "$ENDPOINT_NAME" \
+              --traffic "$NEW=100 $LIVE=0" \
+              -g "$AZURE_RESOURCE_GROUP" -w "$WS" --only-show-errors
+          else
+            az ml online-endpoint update -n "$ENDPOINT_NAME" \
+              --traffic "$NEW=100" \
+              -g "$AZURE_RESOURCE_GROUP" -w "$WS" --only-show-errors
+          fi
+          echo "Traffic now on $NEW"
+
+      - name: Verify through the live endpoint
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          START=$(date +%s%3N)
+          az ml online-endpoint invoke -n "$ENDPOINT_NAME" \
+            --request-file infra/aml/sample-request.json \
+            -g "$AZURE_RESOURCE_GROUP" -w "$WS" > live-response.json
+          END=$(date +%s%3N)
+          python pipelines/verify_endpoint.py \
+            --response live-response.json \
+            --request infra/aml/sample-request.json \
+            --latency-ms $((END - START))
+
+      - name: Retire the previous deployment
+        if: success() && steps.slot.outputs.live != ''
+        run: |
+          set -euo pipefail
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          az ml online-deployment delete -n ${{ steps.slot.outputs.live }} \
+            --endpoint-name "$ENDPOINT_NAME" \
+            -g "$AZURE_RESOURCE_GROUP" -w "$WS" --yes --only-show-errors
+          echo "Retired ${{ steps.slot.outputs.live }}"
+
+      # ---------------------------------------------------------------- rollback
+      - name: Roll back
+        if: failure() && steps.slot.outputs.new != ''
+        run: |
+          set +e
+          WS="mlw-${NAME_PREFIX}-${ENVIRONMENT_NAME}"
+          LIVE=${{ steps.slot.outputs.live }}
+          NEW=${{ steps.slot.outputs.new }}
+          echo "::error::Deployment failed - rolling back to '${LIVE:-none}'"
+          if [[ -n "$LIVE" ]]; then
+            az ml online-endpoint update -n "$ENDPOINT_NAME" \
+              --traffic "$LIVE=100 $NEW=0" \
+              -g "$AZURE_RESOURCE_GROUP" -w "$WS" --only-show-errors
+          fi
+          az ml online-deployment delete -n "$NEW" \
+            --endpoint-name "$ENDPOINT_NAME" \
+            -g "$AZURE_RESOURCE_GROUP" -w "$WS" --yes --only-show-errors
+          echo "Rolled back. The previous model is still serving."
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Model deployment"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Environment | ${ENVIRONMENT_NAME} |"
+            echo "| Model | ${MODEL_NAME}:${{ steps.register.outputs.version }} |"
+            echo "| Endpoint | ${ENDPOINT_NAME} |"
+            echo "| Slot | ${{ steps.slot.outputs.new }} (replaced ${{ steps.slot.outputs.live || 'none' }}) |"
+            echo "| Gate | ${{ needs.gate.outputs.reason }} |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # =========================================================================
+  # 4. Report a blocked promotion
+  # =========================================================================
+  blocked:
+    name: Promotion blocked
+    runs-on: ubuntu-latest
+    needs: gate
+    if: needs.gate.outputs.promote != 'true'
+    steps:
+      - name: Explain
+        run: |
+          {
+            echo "### Model promotion blocked"
+            echo ""
+            echo "${{ needs.gate.outputs.reason }}"
+            echo ""
+            echo "The previously deployed model is untouched and still serving traffic."
+            echo "Full check-by-check detail is in the \`promotion-gate\` artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Model promotion blocked - ${{ needs.gate.outputs.reason }}"
