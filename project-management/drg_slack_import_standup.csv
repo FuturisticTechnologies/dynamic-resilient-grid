@@ -1,0 +1,81 @@
+timestamp,channel,username,message
+1736155800,#drg-standup,sabitha.lingala,"[DRG-19] Sprint 1 planning at 10:00. Focus: repository, dependencies, the LCL loader. Standups here in writing by 09:45 each day, no meeting."
+1737127800,#drg-standup,sabitha.lingala,"[DRG-22] Sprint 1 review. Scaffold, dependency tiers and the loader are done; the licence question is still open and blocks how we plan the synthetic work."
+1737129600,#drg-standup,sabitha.lingala,"Retro. Kept: agreeing the definition of done before writing code. Changed: the RAID log gets reviewed in planning rather than when something breaks. Tried: written standups, which everyone prefers to a call."
+1737365400,#drg-standup,geetha.nallamada,"[DRG-24] Standup. Yesterday: LCL aggregate statistics for the calibration targets. Today: same, handing them to Divya. No blockers."
+1737365520,#drg-standup,divya.maram,"[DRG-24] Yesterday: canonical frame. Today: synthetic generator shape. Blocked on the calibration targets, unblocked this morning."
+1737365640,#drg-standup,devendranath.singam,[DRG-26] Yesterday: dependency tiers merged. Today: config and logging utilities.
+1738340400,#drg-standup,sabitha.lingala,"[DRG-23] Sprint 2 review. Synthetic generator, CLI skeleton and config are in. The licence answer landed today and it reshapes the plan rather than blocking it."
+1738575000,#drg-standup,sabitha.lingala,"Sprint 3 planning. Data contract, neighbourhood aggregation, CI and the architecture document."
+1739547600,#drg-standup,sabitha.lingala,[DRG-30] Sprint 3 review. CI is live and already caught a stale-file dependency. Architecture document is drafted with the non-goals in section two.
+1739784600,#drg-standup,geetha.nallamada,[DRG-32] Standup. Yesterday: profiling setup. Today: daily and weekly load shapes for all four sites. No blockers.
+1740757800,#drg-standup,sabitha.lingala,[DRG-33] Sprint 4 review. Load shape profiling and household heterogeneity done. The heterogeneity finding is going straight into the simulation design assumptions.
+1741968600,#drg-standup,sabitha.lingala,"[DRG-1] Sprint 5 review. Seasonal decomposition, the forward-fill bug fixed, and container images. Data foundations epic closes here."
+1743177600,#drg-standup,sabitha.lingala,"[DRG-40] Sprint 6 review and Q1 close. Six sprints, no forecast, and that was the plan."
+1743179100,#drg-standup,sabitha.lingala,"[DRG-40] Q1 review done. Question from the stakeholder session, recorded because it will come back: 'when do we see a forecast?' Answer is Q3, and the reason is that a forecast built on data with two corrupt days a year and forward-filled gaps would have been ready in March and wrong."
+1743414300,#drg-standup,geetha.nallamada,[DRG-40] That framing helped in the room. Worth reusing verbatim.
+1744018200,#drg-standup,sabitha.lingala,"[DRG-44] Sprint 7 planning. Feature engineering starts: calendar, cyclical, lags. The split contract is in this sprint too and I want it merged before any model exists."
+1744990800,#drg-standup,sabitha.lingala,"Sprint 7 review. Calendar features, lags at 1/48/336 and the split contract are in."
+1746201000,#drg-standup,sabitha.lingala,"[DRG-46] Sprint 8 review. Rolling statistics landed and immediately produced our first leakage bug, caught before anything was published."
+1746202200,#drg-standup,sabitha.lingala,"[DRG-46] Retro. The useful item: Geetha was suspicious of a good number and that is what caught it. We cannot rely on that indefinitely - action is to turn it into an assertion, which is now in."
+1747410000,#drg-standup,sabitha.lingala,[DRG-50] Sprint 9 review. Weather features and lagged temperature in. RAID reviewed - PyTorch moved to active.
+1748619000,#drg-standup,sabitha.lingala,Sprint 10 review. Feature sanity pass and the processed dataset materialisation. Feature engineering is effectively complete.
+1748856600,#drg-standup,sabitha.lingala,"[DRG-52] Sprint 11 planning. The model ladder starts. Order is deliberate: naive, then linear, then trees."
+1749829200,#drg-standup,sabitha.lingala,[DRG-53] Sprint 11 review. Both naive baselines published and named separately after the label bug.
+1750757400,#drg-standup,geetha.nallamada,"[DRG-58] Standup. Yesterday: Ridge results. Today: looking at why test scores are not degrading relative to validation, which they should be."
+1750757520,#drg-standup,divya.maram,"[DRG-58] Yesterday: processed dataset materialisation. Today: same, plus whatever Geetha finds."
+1751039400,#drg-standup,sabitha.lingala,"[DRG-55] Sprint 12 review. Ridge at 0.83 against naive at 1.54, and the evaluation harness is the thing that makes those comparable."
+1751643600,#drg-standup,sabitha.lingala,"[DRG-58] Sprint 13 review. Second leakage bug found and fixed. Two in three months, both caught by suspicion rather than by a test."
+1751644800,#drg-standup,sabitha.lingala,"[DRG-58] Retro. Action carried from May, now with more urgency: the leakage class needs to be structurally impossible, not merely watched for. Divya has restructured so transforms fit inside the pipeline."
+1753460400,#drg-standup,sabitha.lingala,"[DRG-59] Sprint 14 review. XGBoost at 0.70 MAE. The headline number of the project so far, and it is more than twice as good as the operational baseline."
+1754667000,#drg-standup,sabitha.lingala,"Sprint 15 review. Hyperparameter search done, and the finding that it bought very little is worth as much as the tuning."
+1755879000,#drg-standup,sabitha.lingala,[DRG-61] Sprint 16 review. Rolling-origin CV confirms the headline sits at the pessimistic end of the fold range.
+1757087400,#drg-standup,sabitha.lingala,"[DRG-63] Sprint 17 review. Model artefacts now carry their provenance, which is the groundwork for next year's MLOps epic."
+1758015000,#drg-standup,geetha.nallamada,[DRG-65] Standup. Yesterday: LSTM training loop. Today: blocked - torch will not import on this machine despite installing cleanly.
+1758015120,#drg-standup,devendranath.singam,"[DRG-65] Picking that up. It is the MSVC runtime, which is RAID risk 2 arriving on schedule."
+1758297600,#drg-standup,sabitha.lingala,"[DRG-4] Sprint 18 review. Deep models evaluated and not adopted, PyTorch risk realised and mitigated, torch-free fallback in. Model ladder epic closes."
+1760110200,#drg-standup,sabitha.lingala,Sprint 19 review. Ladder written up. Stress detection starts next sprint.
+1761321000,#drg-standup,sabitha.lingala,"[DRG-68] Sprint 20 review. Per-site percentile thresholds in, with the wording about what stress does and does not mean carried into every artefact."
+1761557400,#drg-standup,divya.maram,[DRG-69] Standup. Yesterday: stress event detection. Today: stress-alarm F1 numbers look wrong across the board - the naive baseline is scoring too well.
+1762530000,#drg-standup,sabitha.lingala,"[DRG-69] Sprint 21 review. Third leakage bug, this one in the stress threshold. The team has proposed a standing rule rather than a third individual fix."
+1762531800,#drg-standup,sabitha.lingala,"[DRG-69] Retro, and the honest version: three leakage defects this year, all caught by a person being suspicious. That is a resourcing signal as much as a process one and I am taking it to the year-end review."
+1763739600,#drg-standup,sabitha.lingala,"Sprint 22 review. Stress events, frequency and duration metrics in."
+1764949800,#drg-standup,sabitha.lingala,[DRG-5] Sprint 23 review. Stress-alarm F1 published for every model. Stress detection epic closes.
+1766160000,#drg-standup,sabitha.lingala,[DRG-74] Sprint 24 review and year close. EV adoption sampling and charging profiles landed; heat pumps carry into January.
+1767605400,#drg-standup,sabitha.lingala,"Sprint 27 planning, first of 2026. Scenario engine and the combined EV and heat pump case. RAID review after."
+1768296600,#drg-standup,geetha.nallamada,"[DRG-80] Standup. Yesterday: scenario engine review. Today: the combined scenario peak equals the sum of the parts, which should not happen physically."
+1768296720,#drg-standup,divya.maram,[DRG-80] On it. If the loads are adding exactly then something in the aggregation has lost the time offsets.
+1769183400,#drg-standup,sabitha.lingala,"[DRG-80] Sprint 28 review. The scenario engine landed and immediately produced a result that looked wrong, which turned into the diversity finding."
+1770392400,#drg-standup,sabitha.lingala,"[DRG-81] Sprint 29 review. Scenario sweep and peak amplification metrics, with ADMD printed per scenario for auditability."
+1771601400,#drg-standup,sabitha.lingala,"[DRG-6] Sprint 30 review. Stress under scenarios, and the reporting artefacts that carry the finding. Electrification epic closes."
+1772812800,#drg-standup,sabitha.lingala,Sprint 31 review. Replay engine and the carbon intensity feed.
+1774021200,#drg-standup,sabitha.lingala,"[DRG-88] Sprint 32 review. Replay determinism bug fixed, feed degradation handled. External dependency risk moves from delivery risk to documented behaviour."
+1775232000,#drg-standup,sabitha.lingala,[DRG-89] Sprint 33 review. Simulation handover notes signed off by acceptance test - Geetha ran the sweep from the document. Knowledge concentration risk closed.
+1776440400,#drg-standup,sabitha.lingala,[DRG-91] Sprint 34 review. Sensitivity framework and the stress sensitivity results.
+1777649400,#drg-standup,sabitha.lingala,"[DRG-92] Sprint 35 review. Sensitivity written up. The headline is that the conclusion is robust to everything except adoption rate, which we do not forecast and say so."
+1778860800,#drg-standup,sabitha.lingala,"[DRG-93] Sprint 36 review. SHAP global drivers, and the dashboard shell with its chart theme."
+1780069800,#drg-standup,sabitha.lingala,"[DRG-97] Sprint 37 review. Stress-period SHAP, the scaling bug fixed, and the demand and forecast page."
+1781278800,#drg-standup,sabitha.lingala,[DRG-98] Sprint 38 review. API forecast endpoint in. Neha starts Monday and the onboarding is ready.
+1781602200,#drg-standup,neha.chauhan,"[DRG-99] Standup, day two. Yesterday: environment and a full pipeline run. Today: reading the modelling notes and starting the gap analysis."
+1782489600,#drg-standup,sabitha.lingala,"[DRG-99] Sprint 39 review. Neha's first sprint, and her gap analysis is the most useful document produced this quarter."
+1782490800,#drg-standup,sabitha.lingala,"Retro. Kept: giving the new joiner a narrow first-week goal and asking for a written finding rather than agreement. Changed: QA reviews contracts before implementation, which already happened on the API and worked."
+1784303400,#drg-standup,sabitha.lingala,"[DRG-104] Sprint 40 review. Stress, scenario and explanation endpoints, model registry, and the scenario comparison page - which is the page that carries the whole project finding."
+1784626200,#drg-standup,neha.chauhan,[DRG-110] Standup. Yesterday: dashboard smoke tests. Today: found that switching neighbourhood does not change the series - raising it now.
+1785144600,#drg-standup,devendranath.singam,"[DRG-107] Standup. Yesterday: gate wired into the retrain. Today: the overnight retrain produced a better-MAE model and the gate refused it, which needs a decision rather than a fix."
+1785513600,#drg-standup,sabitha.lingala,"[DRG-14] Sprint 41 review. Promotion gate live, SHAP page, and the data and feature regression pack. Engineering practice epic closes."
+1786722000,#drg-standup,sabitha.lingala,"[DRG-107] Sprint 42 review. Azure infrastructure deploys clean. The gate blocked its first promotion, which everyone agrees is a success rather than an incident."
+1787650200,#drg-standup,amit.shinde,"[DRG-115] Standup, day two. Yesterday: objectives table and the architecture document. Today: stakeholder conversations with network planning."
+1787932800,#drg-standup,sabitha.lingala,"[DRG-115] Sprint 43 review. AML training job, cost pass, the replay page, and Amit's first week. Three joiners in fifteen months and the onboarding pattern is now settled."
+1788168600,#drg-standup,sabitha.lingala,"[DRG-124] Sprint 44 planning. Managed endpoint, scheduled retrain, simulation regression pack, BRD refresh and traceability. Monitoring stays blocked on the ownership decision."
+1788773400,#drg-standup,geetha.nallamada,"[DRG-125] Standup. Yesterday: runbook wording with the planning group. Today: same. The 'what it does not mean' section is taking longer than the rest, which is probably correct."
+1788859200,#drg-standup,sabitha.lingala,"Standup. Sprint 44, day seven. Reminder that the October steering agenda needs the monitoring ownership decision - DRG-124 is blocked on a rota, not on work."
+1788859320,#drg-standup,geetha.nallamada,"[DRG-125] Yesterday: reviewing the operator runbook wording. Today: same, plus the stress explanation panel. No blockers."
+1788859440,#drg-standup,divya.maram,"[DRG-122] Yesterday: replay page polish. Today: starting the sensitivity page, which Amit's traceability work surfaced as the one requirement with a test and no view."
+1788859560,#drg-standup,devendranath.singam,"[DRG-113] Yesterday: endpoint scores against the sample request. Today: the verification script, then the traffic shift. Scheduled retrain is running nightly and the gate is deciding."
+1788859680,#drg-standup,neha.chauhan,"[DRG-120] Yesterday: sampling, determinism and threshold stability assertions all green. Today: ADMD range checks, then UAT scenarios."
+1788859800,#drg-standup,amit.shinde,"[DRG-119] Yesterday: BRD refresh, two thirds through. Today: traceability - twenty-one of twenty-six traced. Blocked on nothing."
+1788946200,#drg-standup,sabitha.lingala,[DRG-126] Standup. Sprint 44 day eight. Reminder: October steering needs the monitoring ownership decision and the probabilistic forecast question that Amit has had raised twice.
+1788946320,#drg-standup,divya.maram,[DRG-122] Yesterday: started the sensitivity page. Today: same. No blockers.
+1788946440,#drg-standup,neha.chauhan,"[DRG-121] Yesterday: ADMD range checks. Today: finishing those, then UAT scenario scripts."
+1788946560,#drg-standup,amit.shinde,[DRG-119] Yesterday: traceability to 21 of 26. Today: the remaining five and the BRD refresh.
+1788946680,#drg-standup,devendranath.singam,"[DRG-113] Yesterday: endpoint verification script. Today: traffic shift, then the retrain schedule review."
