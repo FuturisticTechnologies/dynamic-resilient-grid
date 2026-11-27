@@ -122,6 +122,21 @@ electrification:
     diversity_factor: 0.7
     adoption_levels: [0.0, 0.15, 0.3, 0.5, 0.7]
   monte_carlo_runs: 30
+  # One-at-a-time assumption sensitivity: each assumption is moved to its low
+  # and high value around the reference scenario while everything else stays
+  # put. Adoption rates are scenario inputs - DRG does not forecast them.
+  sensitivity:
+    reference_ev_adoption: 0.4
+    reference_hp_adoption: 0.3
+    assumptions:
+      ev_adoption: [0.2, 0.6]
+      hp_adoption: [0.15, 0.5]
+      ev.charger_kw: [3.6, 11.0]
+      ev.weekday_charge_probability: [0.2, 0.45]
+      ev.diversity_factor: [0.7, 1.0]
+      heat_pump.kw_per_degree: [0.065, 0.105]
+      heat_pump.rated_kw: [2.0, 3.5]
+      heat_pump.diversity_factor: [0.55, 0.85]
 
 streaming:
   speed_factor: 240              # 1 real second == 240 simulated seconds

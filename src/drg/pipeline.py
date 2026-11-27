@@ -18,7 +18,10 @@ import pandas as pd
 
 from drg.analysis.eda import run_eda
 from drg.analysis.sensitivity import (
+    adoption_dominance,
+    assumption_sweep,
     elasticity_curve,
+    rank_assumptions,
     run_sensitivity_grid,
     summarise_amplification,
 )
@@ -232,6 +235,32 @@ def stage_scenarios(
     write_table(curves, cfg.paths.report_dir / "elasticity_curves.parquet")
 
     headline = summarise_amplification(grid)
+
+    # one-at-a-time assumption sweep: which assumptions the conclusions depend on
+    scfg = ecfg.get("sensitivity", {}) or {}
+    ranges = {k: (float(v[0]), float(v[1])) for k, v in (scfg.get("assumptions") or {}).items()}
+    sweep = assumption_sweep(
+        window,
+        thresholds,
+        reference_ev=float(scfg.get("reference_ev_adoption", 0.4)),
+        reference_hp=float(scfg.get("reference_hp_adoption", 0.3)),
+        ranges=ranges or None,
+        ev_config=ev_cfg,
+        hp_config=hp_cfg,
+        min_event_periods=int(cfg.stress.get("min_event_periods", 2)),
+        seed=cfg.seed,
+        runs=1,
+    )
+    ranking = rank_assumptions(sweep)
+    write_table(sweep, cfg.paths.report_dir / "assumption_sensitivity.parquet")
+    write_table(ranking, cfg.paths.report_dir / "assumption_ranking.parquet")
+    headline["assumption_sensitivity"] = {
+        **adoption_dominance(ranking),
+        "ranking": ranking[["rank", "label", "kind", "stress_frequency_swing_pp", "mean_event_hours_swing"]]
+        .round(3)
+        .to_dict(orient="records"),
+    }
+
     (cfg.paths.report_dir / "sensitivity_summary.json").write_text(
         json.dumps(headline, indent=2, default=str), encoding="utf-8"
     )
