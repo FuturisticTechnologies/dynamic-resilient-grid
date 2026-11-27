@@ -168,3 +168,56 @@ def plot_diversity_gap(grid: pd.DataFrame, path: Path) -> Path:
     ax.legend(loc="upper left")
     ax.grid(axis="y", alpha=0.3)
     return _save(fig, path)
+
+
+# ===========================================================================
+# stress frequency and duration
+# ===========================================================================
+STRESS_COLUMNS = [
+    "scenario",
+    "ev_adoption",
+    "hp_adoption",
+    "peak_amplification_pct",
+    "stress_frequency_pct",
+    "stress_frequency_delta_pp",
+    "stress_escalation_x",
+    "stress_hours_per_week",
+    "n_stress_events",
+    "mean_event_hours",
+    "max_event_hours",
+    "event_duration_growth_x",
+    "winter_stress_frequency_pct",
+    "energy_above_threshold_kwh",
+]
+
+
+def stress_escalation_table(grid: pd.DataFrame) -> pd.DataFrame:
+    """Stress frequency and duration per scenario, against the fixed thresholds."""
+    cols = [c for c in STRESS_COLUMNS if c in grid.columns]
+    return grid[cols].sort_values(["ev_adoption", "hp_adoption"]).reset_index(drop=True)
+
+
+def plot_stress_frequency_duration(grid: pd.DataFrame, path: Path) -> Path:
+    """Stress frequency and mean event duration against EV adoption, per heat-pump level."""
+    table = stress_escalation_table(grid)
+    fig, (ax_f, ax_d) = plt.subplots(1, 2, figsize=(13, 5.2), sharex=True)
+    cmap = plt.get_cmap("viridis")
+    hp_levels = sorted(table["hp_adoption"].unique())
+    for i, hp in enumerate(hp_levels):
+        sub = table[table["hp_adoption"] == hp].sort_values("ev_adoption")
+        colour = cmap(i / max(len(hp_levels) - 1, 1))
+        label = f"HP {_pct_label(hp)}"
+        ax_f.plot(100 * sub["ev_adoption"], sub["stress_frequency_pct"], "o-", color=colour, label=label)
+        ax_d.plot(100 * sub["ev_adoption"], sub["mean_event_hours"], "o-", color=colour, label=label)
+        if "max_event_hours" in sub:
+            ax_d.plot(100 * sub["ev_adoption"], sub["max_event_hours"], ":", color=colour, alpha=0.7)
+
+    ax_f.set_title("Stress frequency (% of half-hours above threshold)")
+    ax_f.set_ylabel("Stress frequency (%)")
+    ax_d.set_title("Stress event duration (solid: mean, dotted: longest)")
+    ax_d.set_ylabel("Event duration (hours)")
+    for ax in (ax_f, ax_d):
+        ax.set_xlabel("EV adoption (%)")
+        ax.grid(alpha=0.3)
+    ax_f.legend(title="Heat-pump adoption", fontsize=8)
+    return _save(fig, path)
