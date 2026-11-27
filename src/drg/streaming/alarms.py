@@ -201,9 +201,7 @@ class AlarmManager:
         return self.events[start:]
 
     # ------------------------------------------------------------ internals
-    def _raise(
-        self, kind: str, level: str, tick: Any, ts: pd.Timestamp, message: str, value: float
-    ) -> Alarm:
+    def _raise(self, kind: str, level: str, tick: Any, ts: pd.Timestamp, message: str, value: float) -> Alarm:
         alarm = Alarm(
             id=self._next_id,
             kind=kind,

@@ -243,9 +243,7 @@ def _replay_session(bundle) -> ReplaySession:
     """One replay session per browser session, rebuilt when the site changes."""
     key = f"replay::{site}::{id(bundle)}"
     if st.session_state.get("replay_key") != key:
-        engine = StreamingReplayEngine(
-            demand, bundle, thresholds, cfg, neighbourhood_id=site, explain=True
-        )
+        engine = StreamingReplayEngine(demand, bundle, thresholds, cfg, neighbourhood_id=site, explain=True)
         source = str(site_demand.get("source", pd.Series(["historical data"])).iloc[0])
         session = ReplaySession(
             engine, speed=float(cfg.streaming.get("speed_factor", 240)), source=f"{source} data"
