@@ -32,12 +32,25 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from drg.simulation.household import (
+    HOURS_PER_PERIOD,
+    PERIODS_PER_DAY,
+    simulate_neighbourhood_load,
+)
 from drg.utils.logging_utils import get_logger
 
 log = get_logger(__name__)
 
-PERIODS_PER_DAY = 48
-HOURS_PER_PERIOD = 0.5
+__all__ = [
+    "EVConfig",
+    "HeatPumpConfig",
+    "ScenarioResult",
+    "simulate_ev_load",
+    "simulate_heat_pump_load",
+    "apply_scenario",
+    "HOURS_PER_PERIOD",
+    "PERIODS_PER_DAY",
+]
 
 
 # ===========================================================================
@@ -106,78 +119,22 @@ def simulate_ev_load(
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Aggregate EV charging demand (kWh per half hour) on ``timestamps``.
 
-    ``timestamps`` must be a regular 30-minute index. Returns the Monte-Carlo
-    mean profile, optionally with the 10th/90th percentile band.
+    Simulated per household (:func:`drg.simulation.household.ev_household_profiles`)
+    and summed once. ``timestamps`` must be a regular 30-minute index. Returns
+    the Monte-Carlo mean profile, optionally with the 10th/90th percentile band.
     """
-    cfg = config or EVConfig()
-    timestamps = pd.DatetimeIndex(timestamps)
-    n_ev = int(round(n_households * float(adoption)))
-    if n_ev <= 0 or len(timestamps) == 0:
-        zeros = np.zeros(len(timestamps))
-        return (zeros, zeros, zeros) if return_band else zeros
-
-    # absolute half-hour index of every timestamp relative to the first day
-    day0 = timestamps[0].normalize()
-    abs_period = ((timestamps - day0).total_seconds().to_numpy() // (60 * 30)).astype(np.int64)
-    n_slots = int(abs_period.max()) + PERIODS_PER_DAY + 1
-
-    unique_days = pd.DatetimeIndex(sorted(set(timestamps.normalize())))
-    day_offset = ((unique_days - day0).days.to_numpy() * PERIODS_PER_DAY).astype(np.int64)
-    is_weekend = unique_days.dayofweek.to_numpy() >= 5
-    p_charge = np.where(is_weekend, cfg.weekend_charge_probability, cfg.weekday_charge_probability)
-
-    energy_full_period = cfg.charger_kw * HOURS_PER_PERIOD  # kWh in a fully-charging half hour
-    max_span = int(np.ceil(cfg.max_duration_h * 2)) + 2
-
-    profiles = np.zeros((runs, n_slots), dtype=float)
-    for run in range(runs):
-        rng = np.random.default_rng(seed + 1009 * run)
-        n_days = len(unique_days)
-
-        charging = rng.random((n_days, n_ev)) < p_charge[:, None]
-        day_idx, _ = np.nonzero(charging)
-        n_sessions = day_idx.size
-        if n_sessions == 0:
-            continue
-
-        start = rng.uniform(
-            cfg.window_start_hour * 2, cfg.window_end_hour * 2, n_sessions
-        )  # fractional periods after midnight
-        duration = rng.uniform(cfg.min_duration_h * 2, cfg.max_duration_h * 2, n_sessions)
-        end = start + duration
-        base = day_offset[day_idx] + np.floor(start).astype(np.int64)
-
-        acc = profiles[run]
-        for k in range(max_span):
-            slot = base + k
-            lo = np.floor(start) + k
-            overlap = np.clip(np.minimum(end, lo + 1) - np.maximum(start, lo), 0.0, 1.0)
-            contrib = overlap * energy_full_period
-            valid = (contrib > 0) & (slot >= 0) & (slot < n_slots)
-            if valid.any():
-                np.add.at(acc, slot[valid], contrib[valid])
-
-    profiles *= cfg.diversity_factor
-    aligned = profiles[:, abs_period]
-    mean = aligned.mean(axis=0)
+    load = simulate_neighbourhood_load(
+        timestamps, n_households, adoption, 0.0, None, config, None, ev_seed=seed, hp_seed=seed, runs=runs
+    )
     if return_band:
-        return mean, np.percentile(aligned, 10, axis=0), np.percentile(aligned, 90, axis=0)
-    return mean
+        lo, hi = load.band("ev")
+        return load.ev_kwh, lo, hi
+    return load.ev_kwh
 
 
 # ===========================================================================
 # heat pumps
 # ===========================================================================
-def _heat_pump_shape(period_of_day: np.ndarray, cfg: HeatPumpConfig) -> np.ndarray:
-    """Occupancy-driven shaping factor with morning and evening peaks."""
-    m_start, m_end, e_start, e_end = cfg.evening_peak_hours
-    hours = period_of_day / 2.0
-    morning = np.exp(-0.5 * ((hours - (m_start + m_end) / 2) / 1.6) ** 2)
-    evening = np.exp(-0.5 * ((hours - (e_start + e_end) / 2) / 2.6) ** 2)
-    setback = 0.35  # overnight / away frost protection
-    return setback + 0.75 * morning + 1.0 * evening
-
-
 def simulate_heat_pump_load(
     timestamps: pd.DatetimeIndex,
     n_households: int,
@@ -189,48 +146,28 @@ def simulate_heat_pump_load(
     runs: int = 1,
     return_band: bool = False,
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Aggregate heat-pump electrical demand (kWh per half hour)."""
-    cfg = config or HeatPumpConfig()
-    timestamps = pd.DatetimeIndex(timestamps)
-    n_hp = int(round(n_households * float(adoption)))
-    if n_hp <= 0 or len(timestamps) == 0:
-        zeros = np.zeros(len(timestamps))
-        return (zeros, zeros, zeros) if return_band else zeros
+    """Aggregate heat-pump electrical demand (kWh per half hour).
 
-    period_of_day = (timestamps.hour * 2 + timestamps.minute // 30).to_numpy()
-    shape = _heat_pump_shape(period_of_day, cfg)
-
-    if temperature_c is not None:
-        temp = (
-            pd.Series(np.asarray(temperature_c, dtype=float)).interpolate(limit_direction="both").to_numpy()
-        )
-        hdd = np.clip(cfg.base_temperature_c - temp, 0.0, None)
-    else:  # winter-seasonal proxy when no temperature is available
-        doy = timestamps.dayofyear.to_numpy(dtype=float)
-        hdd = np.clip(6.5 + 6.0 * np.cos(2 * np.pi * (doy - 20) / 365.25), 0.0, None)
-
-    profiles = np.zeros((runs, len(timestamps)), dtype=float)
-    for run in range(runs):
-        rng = np.random.default_rng(seed + 3607 * run)
-        # per-household thermal efficiency / setpoint spread
-        spread = np.clip(rng.normal(1.0, 0.18, n_hp), 0.4, 1.8)
-        # thermostat cycling noise, common-mode across the fleet
-        cycling = np.clip(rng.normal(1.0, 0.08, len(timestamps)), 0.6, 1.4)
-
-        # cycling is applied *inside* the clip: a unit can modulate below its
-        # rating but never draw more than its rated electrical input
-        per_hh_kw = np.clip(
-            cfg.kw_per_degree * hdd[:, None] * shape[:, None] * spread[None, :] * cycling[:, None],
-            0.0,
-            cfg.rated_kw,
-        )
-        profiles[run] = per_hh_kw.sum(axis=1) * HOURS_PER_PERIOD
-
-    profiles *= cfg.diversity_factor
-    mean = profiles.mean(axis=0)
+    Simulated per household with household-specific timing
+    (:func:`drg.simulation.household.heat_pump_household_profiles`) and
+    summed once.
+    """
+    load = simulate_neighbourhood_load(
+        timestamps,
+        n_households,
+        0.0,
+        adoption,
+        temperature_c,
+        None,
+        config,
+        ev_seed=seed,
+        hp_seed=seed,
+        runs=runs,
+    )
     if return_band:
-        return mean, np.percentile(profiles, 10, axis=0), np.percentile(profiles, 90, axis=0)
-    return mean
+        lo, hi = load.band("heat_pump")
+        return load.heat_pump_kwh, lo, hi
+    return load.heat_pump_kwh
 
 
 # ===========================================================================
