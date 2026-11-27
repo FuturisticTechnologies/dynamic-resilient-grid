@@ -7,7 +7,9 @@ scenario against the *fixed historical* thresholds, and quantifies:
 * stress frequency escalation (percentage points and multiple);
 * stress duration escalation (mean and maximum event length);
 * adoption elasticity - the marginal peak increase per 10 pp of adoption;
-* the seasonal split, which isolates the winter heat-pump contribution.
+* the seasonal split, which isolates the winter heat-pump contribution;
+* household diversity - how far the combined EV + heat-pump peak sits below
+  the sum of the single-technology peaks of the *same* draws (DRG-80).
 """
 
 from __future__ import annotations
@@ -72,6 +74,7 @@ def run_sensitivity_grid(
     seed: int = 42,
     runs: int = 1,
     keep_frames: bool = False,
+    check_diversity: bool = True,
 ) -> tuple[pd.DataFrame, dict[tuple[float, float], pd.DataFrame]]:
     """Evaluate every (EV, heat pump) adoption combination.
 
@@ -92,6 +95,7 @@ def run_sensitivity_grid(
             hp_config=hp_config,
             seed=seed,
             runs=runs,
+            check_diversity=check_diversity,
         )
         metrics = {**result.summary, **_scenario_metrics(result.frame, thresholds, min_event_periods)}
         metrics["scenario"] = f"EV{int(ev * 100)}_HP{int(hp * 100)}"
@@ -109,6 +113,11 @@ def run_sensitivity_grid(
         grid["stress_frequency_delta_pp"] = grid["stress_frequency_pct"] - base_case["stress_frequency_pct"]
         grid["stress_escalation_x"] = grid["stress_frequency_pct"] / ref_freq
         grid["peak_amplification_pct"] = 100.0 * (grid["electrified_peak_kwh"] / ref_peak - 1.0)
+        # matched single-technology peaks were computed against each row's own
+        # base peak, which is the base case's: keep the comparison consistent
+        if "additive_peak_amplification_pct" in grid:
+            additive = grid["additive_peak_amplification_pct"]
+            grid["diversity_gain_pp"] = additive - grid["peak_amplification_pct"]
         grid["event_duration_growth_x"] = grid["mean_event_hours"] / (base_case["mean_event_hours"] or np.nan)
     grid["total_adoption"] = grid["ev_adoption"] + grid["hp_adoption"]
     log.info("sensitivity grid complete: %s scenarios", len(grid))
@@ -157,9 +166,17 @@ def summarise_amplification(grid: pd.DataFrame) -> dict[str, Any]:
         "worst_case_mean_event_hours": float(worst["mean_event_hours"]),
         "ev_only_max_amplification_pct": float(ev_only["peak_amplification_pct"].max()),
         "hp_only_max_amplification_pct": float(hp_only["peak_amplification_pct"].max()),
+        # combined minus additive for the worst case, using the EV-only and
+        # heat-pump-only peaks of the same draws (negative = diversity benefit)
         "combined_vs_additive_pp": float(
-            worst["peak_amplification_pct"]
+            worst["peak_amplification_pct"] - worst["additive_peak_amplification_pct"]
+            if "additive_peak_amplification_pct" in worst
+            else worst["peak_amplification_pct"]
             - (ev_only["peak_amplification_pct"].max() + hp_only["peak_amplification_pct"].max())
         ),
+        "worst_case_additive_peak_amplification_pct": float(
+            worst.get("additive_peak_amplification_pct", np.nan)
+        ),
+        "worst_case_diversity_gain_pp": float(worst.get("diversity_gain_pp", np.nan)),
         "n_scenarios": int(len(grid)),
     }
