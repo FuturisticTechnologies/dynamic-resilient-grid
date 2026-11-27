@@ -63,6 +63,16 @@ features:
   horizon: 1                            # steps ahead (1 = 30 minutes)
 
 models:
+  # Train / validation / test windows (DRG-57), fixed here for the whole
+  # project and enforced by the training harness for every model:
+  #   train      -- from train_start (null = first usable timestamp after the
+  #                 lag warm-up) up to the validation window
+  #   validation -- val_size_days before the test window; early stopping and
+  #                 model selection only
+  #   test       -- the final test_size_days, held out until final reporting
+  #                 (60 days = 2,880 half-hours per neighbourhood)
+  train_start: null
+  min_train_days: 30
   test_size_days: 60
   val_size_days: 30
   n_splits: 5
