@@ -86,12 +86,19 @@ def features(
     config: Optional[str] = ConfigOpt,
     force: bool = typer.Option(False, help="Rebuild even if cached"),
 ) -> None:
-    """Build the engineered feature table."""
-    from drg.pipeline import stage_features
+    """Materialise the model-ready dataset (one split-labelled artefact per neighbourhood)."""
+    from drg.features.dataset import SPLIT_COL, materialise_model_ready
 
     cfg = _cfg(config)
-    df = stage_features(cfg, force=force)
-    console.print(f"[green]OK[/] {len(df):,} rows x {df.shape[1]} columns -> {cfg.paths.feature_table}")
+    dataset = materialise_model_ready(cfg, force=force)
+    df = dataset.load()
+    state = "rebuilt" if dataset.rebuilt else "reused (config and upstream data unchanged)"
+    console.print(
+        f"[green]OK[/] {len(df):,} rows x {df.shape[1]} columns, {len(dataset.files)} neighbourhoods, "
+        f"config {dataset.config_hash}: {state}"
+    )
+    console.print(f"    split rows: {df[SPLIT_COL].value_counts().to_dict()}")
+    console.print(f"    -> {dataset.directory}")
 
 
 @app.command()

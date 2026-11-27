@@ -25,7 +25,7 @@ from drg.analysis.sensitivity import (
 from drg.config import Config, load_config
 from drg.data.external_apis import build_carbon_intensity_series, build_temperature_series
 from drg.data.lcl_loader import build_neighbourhood_demand
-from drg.features.engineering import build_feature_table
+from drg.features.dataset import SPLIT_COL, TEST, materialise_model_ready
 from drg.models.registry import ModelBundle, load_best
 from drg.models.train import TrainingResult, train_models
 from drg.simulation.electrification import EVConfig, HeatPumpConfig, apply_scenario
@@ -113,16 +113,13 @@ def stage_eda(cfg: Config, demand: pd.DataFrame | None = None) -> dict[str, Any]
 # stage 3 -- features
 # ===========================================================================
 def stage_features(cfg: Config, force: bool = False) -> pd.DataFrame:
-    target = cfg.paths.feature_table
-    if target.exists() and not force:
-        log.info("using cached %s", target.name)
-        return pd.read_parquet(target)
+    """The model-ready dataset: feature-complete and split-labelled (DRG-51).
 
-    demand = build_neighbourhood_demand(cfg)
-    weather, carbon = load_context_tables(cfg)
-    features = build_feature_table(demand, cfg, weather=weather, carbon=carbon)
-    write_table(features, target)
-    return features
+    One artefact per neighbourhood under ``data/processed/model_ready``,
+    rebuilt only when the dataset config or the upstream data changes.
+    """
+    dataset = materialise_model_ready(cfg, force=force)
+    return dataset.load()
 
 
 # ===========================================================================
@@ -272,9 +269,11 @@ def stage_explain(
     bundle = bundle or load_best(cfg.paths.model_dir)
     features = features if features is not None else stage_features(cfg)
 
-    test_days = int(cfg.get("models.test_size_days", 60))
-    cutoff = features["timestamp"].max() - pd.Timedelta(days=test_days)
-    test = features[features["timestamp"] >= cutoff]
+    if SPLIT_COL in features.columns:
+        test = features[features[SPLIT_COL] == TEST]
+    else:  # a frame built outside the model-ready dataset
+        test_days = int(cfg.get("models.test_size_days", 60))
+        test = features[features["timestamp"] >= features["timestamp"].max() - pd.Timedelta(days=test_days)]
     if test.empty:
         test = features.tail(min(len(features), sample_size))
 

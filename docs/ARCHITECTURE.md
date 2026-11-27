@@ -74,6 +74,23 @@ Two invariants are enforced and tested: rolling statistics are built from **shif
 including the current observation), and `groupby("neighbourhood_id")` means no lag ever crosses a
 site boundary.
 
+### 2.4 Model-ready dataset (`drg.features.dataset`, DRG-51)
+
+The feature table is materialised once, as **one artefact per neighbourhood**:
+`data/processed/model_ready/model_ready_<site>_<config hash>.parquet`. Each artefact is
+feature-complete (every engineered feature plus `target`) and carries a `split` column
+(`train` / `validation` / `test`). The label is assigned once from `models.val_size_days` and
+`models.test_size_days`, so no stage can choose its own split. `train_models` and the SHAP stage
+read it back with `split_frames`, so every model is fitted, early-stopped and scored on the same
+rows.
+
+`manifest.json` records the config hash, a SHA-256 fingerprint of each upstream table (cleaned
+demand, weather, carbon), the split boundaries, row counts per split and the feature columns. The
+hash covers only the settings that shape the dataset (data, features, split windows, location
+and context switches, the heat-pump base temperature and the seed). Training runs reuse the
+artefacts until that hash or an upstream fingerprint changes, or a file is missing.
+`drg features --force` rebuilds them unconditionally.
+
 ---
 
 ## 3. Forecasting (`drg.models`)
