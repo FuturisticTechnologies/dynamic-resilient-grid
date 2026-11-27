@@ -330,8 +330,9 @@ sensitivity check). Thresholds are estimated on the baseline window and then **h
 scenario that raises demand raises measured stress instead of moving the goalposts with it.
 
 **Electrification is bottom-up.** Each adopting household is simulated individually — EV plug-in
-day, start time inside the evening window, session length, with partial half-hour overlap accounted
-for analytically; heat-pump electrical input driven by heating degrees, shaped by occupancy and
+day, arrival time drawn from an evening-peaked distribution, session energy from annual mileage and
+duration = energy ÷ charger power (so charger power moves the peak and ADMD, not the daily energy),
+with partial half-hour overlap accounted for analytically; heat-pump electrical input driven by heating degrees, shaped by occupancy and
 capped at the unit rating. Diversity factors are applied to the aggregate, and the whole simulation
 repeats `monte_carlo_runs` times.
 

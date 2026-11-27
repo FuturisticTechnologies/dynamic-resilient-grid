@@ -139,6 +139,15 @@ def elasticity_curve(grid: pd.DataFrame, hold: str = "hp_adoption") -> pd.DataFr
     return pd.concat(out, ignore_index=True)
 
 
+def _ev_headline(grid: pd.DataFrame) -> dict[str, Any]:
+    """Charger power, ADMD and per-car energy at the highest EV adoption level."""
+    cols = ["ev_charger_kw", "ev_admd_kw", "ev_kwh_per_car_per_day", "ev_implied_miles_per_year"]
+    if not set(cols) <= set(grid.columns) or not (grid["ev_adoption"] > 0).any():
+        return {}
+    top = grid[grid["ev_adoption"] == grid["ev_adoption"].max()].iloc[0]
+    return {f"headline_{c}": float(top[c]) for c in cols}
+
+
 def summarise_amplification(grid: pd.DataFrame) -> dict[str, Any]:
     """Headline numbers for the report and the dashboard KPI row."""
     base = grid[(grid["ev_adoption"] == 0) & (grid["hp_adoption"] == 0)]
@@ -161,5 +170,7 @@ def summarise_amplification(grid: pd.DataFrame) -> dict[str, Any]:
             worst["peak_amplification_pct"]
             - (ev_only["peak_amplification_pct"].max() + hp_only["peak_amplification_pct"].max())
         ),
+        # EV assumptions a planner checks first (DRG-74), at the highest EV level
+        **_ev_headline(grid),
         "n_scenarios": int(len(grid)),
     }
