@@ -30,7 +30,7 @@ import pandas as pd
 from drg.utils.logging_utils import get_logger
 
 if TYPE_CHECKING:  # configs live with the public API; avoid an import cycle
-    from drg.simulation.electrification import EVConfig
+    from drg.simulation.electrification import EVConfig, HeatPumpConfig
 
 log = get_logger(__name__)
 
@@ -117,4 +117,79 @@ def ev_household_profiles(
             np.add.at(acc, (slot[valid], household[valid]), contrib[valid])
 
     out[:] = acc[abs_period]
+    return out * float(cfg.diversity_factor)
+
+
+# ===========================================================================
+# heat pumps -- per household
+# ===========================================================================
+# Household timing diversity: thermostat schedules differ between homes by
+# tens of minutes, and each unit cycles on its own. A small common-mode term
+# keeps the fleet-wide response to the weather.
+SCHEDULE_OFFSET_SD_H = 0.75
+CYCLING_SD = 0.10
+COMMON_CYCLING_SD = 0.04
+EFFICIENCY_SD = 0.18
+
+
+def heat_pump_shape(hours: np.ndarray, cfg: HeatPumpConfig) -> np.ndarray:
+    """Occupancy-driven shaping factor with morning and evening peaks."""
+    m_start, m_end, e_start, e_end = cfg.evening_peak_hours
+    morning = np.exp(-0.5 * ((hours - (m_start + m_end) / 2) / 1.6) ** 2)
+    evening = np.exp(-0.5 * ((hours - (e_start + e_end) / 2) / 2.6) ** 2)
+    setback = 0.35  # overnight / away frost protection
+    return setback + 0.75 * morning + 1.0 * evening
+
+
+def heating_degrees(
+    timestamps: pd.DatetimeIndex,
+    temperature_c: np.ndarray | pd.Series | None,
+    base_temperature_c: float,
+) -> np.ndarray:
+    """Heating degrees per period; a winter-seasonal proxy when no temperature."""
+    if temperature_c is not None:
+        temp = (
+            pd.Series(np.asarray(temperature_c, dtype=float)).interpolate(limit_direction="both").to_numpy()
+        )
+        return np.clip(base_temperature_c - temp, 0.0, None)
+    doy = timestamps.dayofyear.to_numpy(dtype=float)
+    return np.clip(6.5 + 6.0 * np.cos(2 * np.pi * (doy - 20) / 365.25), 0.0, None)
+
+
+def heat_pump_household_profiles(
+    timestamps: pd.DatetimeIndex,
+    owners: np.ndarray,
+    temperature_c: np.ndarray | pd.Series | None,
+    cfg: HeatPumpConfig,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Heat-pump electrical energy (kWh per half hour) per household.
+
+    Every owner gets its own thermal efficiency, its own schedule offset
+    (the occupancy shape is shifted by a household-specific number of
+    minutes) and its own thermostat cycling, so units do not peak in lock-step.
+    Draw is capped at the unit rating. ``cfg.diversity_factor`` is applied per
+    household as an energy calibration, as for EVs.
+    """
+    timestamps = pd.DatetimeIndex(timestamps)
+    n_periods, n_households = len(timestamps), len(owners)
+    out = np.zeros((n_periods, n_households), dtype=float)
+    hp_idx = np.flatnonzero(owners)
+    if n_periods == 0 or hp_idx.size == 0:
+        return out
+
+    hdd = heating_degrees(timestamps, temperature_c, cfg.base_temperature_c)
+    hours = (timestamps.hour + timestamps.minute / 60.0).to_numpy(dtype=float)
+
+    n_hp = hp_idx.size
+    efficiency = np.clip(rng.normal(1.0, EFFICIENCY_SD, n_hp), 0.4, 1.8)
+    offset_h = rng.normal(0.0, SCHEDULE_OFFSET_SD_H, n_hp)
+    shape = heat_pump_shape((hours[:, None] - offset_h[None, :]) % 24.0, cfg)
+    common = rng.normal(0.0, COMMON_CYCLING_SD, n_periods)[:, None]
+    cycling = np.clip(1.0 + common + rng.normal(0.0, CYCLING_SD, (n_periods, n_hp)), 0.6, 1.4)
+
+    # cycling is applied *inside* the clip: a unit can modulate below its
+    # rating but never draw more than its rated electrical input
+    kw = np.clip(cfg.kw_per_degree * hdd[:, None] * shape * efficiency[None, :] * cycling, 0.0, cfg.rated_kw)
+    out[:, hp_idx] = kw * HOURS_PER_PERIOD
     return out * float(cfg.diversity_factor)
