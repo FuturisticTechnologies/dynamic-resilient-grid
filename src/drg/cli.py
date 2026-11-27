@@ -201,13 +201,19 @@ def replay(
     config: Optional[str] = ConfigOpt,
     ticks: int = typer.Option(96, help="Number of half-hourly steps to replay"),
     neighbourhood: Optional[str] = typer.Option(None),
-    realtime: bool = typer.Option(False, help="Throttle to the configured speed factor"),
+    realtime: bool = typer.Option(False, help="Pace the replay at --speed instead of running flat out"),
+    speed: Optional[float] = typer.Option(
+        None, help="Replay speed (simulated / wall time); defaults to streaming.speed_factor"
+    ),
+    explain: bool = typer.Option(False, help="Attach the top drivers of each forecast"),
 ) -> None:
-    """Replay historical demand as a simulated live feed with stress alerts."""
+    """Replay historical demand (not a live feed) with forecasts and operator alarms."""
+    import time
+
     import pandas as pd
 
     from drg.models.registry import load_best
-    from drg.streaming.replay import StreamingReplayEngine
+    from drg.streaming import REPLAY_LABEL, ReplaySession, StreamingReplayEngine
     from drg.stress.detection import compute_thresholds
 
     cfg = _cfg(config)
@@ -223,26 +229,53 @@ def replay(
         thresholds,
         cfg,
         neighbourhood_id=neighbourhood,
-        start_index=max(
-            len(demand[demand["neighbourhood_id"] == (neighbourhood or demand["neighbourhood_id"].iloc[0])])
-            - ticks
-            - 1,
-            int(cfg.streaming.get("window_periods", 336)) + 1,
-        ),
+        explain=explain,
     )
-    frame = engine.run(n=ticks, realtime=realtime)
+    source = str(demand.get("source", pd.Series(["historical"])).iloc[0])
+    session = ReplaySession(
+        engine,
+        speed=float(speed or cfg.streaming.get("speed_factor", 240)),
+        source=f"{source} data",
+    )
+    session.reset(max(len(engine.series) - ticks - 1, engine.window_periods + 1))
+
+    console.rule(f"[bold yellow]{REPLAY_LABEL}[/] - not a live feed")
+    if realtime:
+        session.play()
+        for _ in range(ticks):
+            for event in session.step(1):
+                when = f"{event.timestamp:%d %b %H:%M}"
+                console.print(f"[yellow]{when}[/] {event.action.upper():<12} {event.message}")
+            time.sleep(session.seconds_per_period)
+    else:
+        session.step(ticks)
+    console.print(session.label())
+
+    frame = session.ticks_frame()
     frame["alert"] = frame.apply(
         lambda r: "STRESS" if r["is_stress"] else ("PRE-EMPTIVE" if r["forecast_is_stress"] else "ok"),
         axis=1,
     )
     _print_df(
         frame[["timestamp", "actual_kwh", "forecast_next_kwh", "threshold_kwh", "severity", "alert"]],
-        f"Streaming replay ({engine.neighbourhood_id})",
+        f"{REPLAY_LABEL} ({engine.neighbourhood_id})",
         max_rows=ticks,
     )
+    events = session.alarms.events_frame()
+    if len(events):
+        _print_df(events, "Operator alarm events (replay timestamps)", max_rows=200)
+    else:
+        console.print("No alarms raised during the replay.")
+
     out = cfg.paths.report_dir / "replay_log.parquet"
-    frame.to_parquet(out, index=False)
-    console.print(f"[green]OK[/] alert log -> {out}")
+    frame["mode"] = "replay"
+    if "drivers" in frame:
+        frame["drivers"] = frame["drivers"].map(json.dumps)
+    frame.drop(columns=[c for c in ("context",) if c in frame]).to_parquet(out, index=False)
+    alarms_out = cfg.paths.report_dir / "replay_alarms.csv"
+    events.to_csv(alarms_out, index=False)
+    console.print(f"[green]OK[/] replay log -> {out}")
+    console.print(f"[green]OK[/] alarm events -> {alarms_out}")
 
 
 @app.command()
