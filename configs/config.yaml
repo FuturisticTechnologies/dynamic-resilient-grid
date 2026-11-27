@@ -96,19 +96,34 @@ stress:
 
 electrification:
   ev:
+    # Charger power is a parameter: sessions are energy-driven, so a faster
+    # charger shortens (and sharpens) each session without changing the energy
+    # a car needs. The scenario summary reports the resulting ADMD (DRG-74).
     charger_kw: 7.0
-    window_start_hour: 17
-    window_end_hour: 22
-    min_duration_h: 2.0
-    max_duration_h: 4.0
-    # Probability that an adopting household plugs in on a given day. A 2-4 h
-    # session at 7 kW delivers 14-28 kWh, i.e. a near-full charge, so daily
-    # plug-in would imply ~7,600 kWh/year per car. UK average car mileage
-    # (~7,400 miles at ~3.5 miles/kWh) implies ~2,100 kWh/year, which is
-    # reproduced by charging on roughly one day in three.
+    # Arrival time: truncated normal inside the charging window.
+    window_start_hour: 15.0
+    window_end_hour: 23.5
+    weekday_arrival_mean_h: 18.5
+    weekday_arrival_sd_h: 1.4
+    weekend_arrival_mean_h: 17.5
+    weekend_arrival_sd_h: 2.2
+    # Probability that an adopting household plugs in on a given day; UK
+    # drivers with home charging typically plug in every two to four days.
     weekday_charge_probability: 0.32
     weekend_charge_probability: 0.24
-    diversity_factor: 0.85
+    # Session energy is calibrated from mileage: 6,800 miles/year at 3.5
+    # miles/kWh is ~1,940 kWh/year, i.e. ~5.3 kWh per car per day, spread over
+    # the plug-in days (~18 kWh per session, ~2.6 h at 7 kW). Every scenario
+    # reports kWh per car per day and the implied annual mileage so this
+    # assumption can be checked against average UK car mileage.
+    annual_miles: 6800
+    miles_per_kwh: 3.5
+    charge_efficiency: 1.0
+    session_energy_cv: 0.45
+    battery_kwh: 60.0
+    # Diversity comes from the arrival / energy draws themselves; this is only
+    # a linear calibration of the aggregate and is left at 1.0.
+    diversity_factor: 1.0
     adoption_levels: [0.0, 0.2, 0.4, 0.6, 0.8]
   heat_pump:
     rated_kw: 2.5                # electrical input at design condition

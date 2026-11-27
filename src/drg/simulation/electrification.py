@@ -4,13 +4,16 @@ Both technologies are simulated at *household* level and then aggregated, so
 the resulting neighbourhood profile carries a realistic diversity effect
 rather than a flat multiplier:
 
-**Electric vehicles** - each adopting household owns a 7 kW single-phase
-charger. On any given day it plugs in with a weekday/weekend probability, at a
-uniformly random start time inside the evening window (17:00-22:00), for a
-uniformly random 2-4 hour session. Sessions that overrun the window continue
-into the night, exactly as uncontrolled domestic charging does. Partial
-half-hour overlap is accounted for analytically, so a session starting at
-18:12 contributes the correct fraction to the 18:00 period.
+**Electric vehicles** - each adopting household owns a home charger of
+``charger_kw``. On any given day it plugs in with a weekday/weekend
+probability; the arrival time is drawn from an evening-peaked distribution
+(truncated normal inside the charging window) and the session energy from the
+car's mileage (``annual_miles`` / ``miles_per_kwh``, lognormal spread), so the
+session lasts energy / charger power rather than a fixed schedule. A faster
+charger therefore delivers the *same* energy in a shorter, sharper session.
+Sessions that overrun the window continue into the night, exactly as
+uncontrolled domestic charging does, and partial half-hour overlap is
+accounted for analytically (DRG-74).
 
 **Heat pumps** - a thermally driven load: electrical input rises with heating
 degrees below the balance-point temperature, is shaped by the morning and
@@ -46,13 +49,24 @@ HOURS_PER_PERIOD = 0.5
 @dataclass
 class EVConfig:
     charger_kw: float = 7.0
-    window_start_hour: float = 17.0
-    window_end_hour: float = 22.0
-    min_duration_h: float = 2.0
-    max_duration_h: float = 4.0
+    # arrival-time distribution: truncated normal inside the charging window
+    window_start_hour: float = 15.0
+    window_end_hour: float = 23.5
+    weekday_arrival_mean_h: float = 18.5
+    weekday_arrival_sd_h: float = 1.4
+    weekend_arrival_mean_h: float = 17.5
+    weekend_arrival_sd_h: float = 2.2
+    # plug-in frequency
     weekday_charge_probability: float = 0.32
     weekend_charge_probability: float = 0.24
-    diversity_factor: float = 0.85
+    # session energy, calibrated from mileage: energy / charger_kw = duration
+    annual_miles: float = 6800.0
+    miles_per_kwh: float = 3.5
+    charge_efficiency: float = 1.0  # energy at the meter per kWh into the battery
+    session_energy_cv: float = 0.45
+    battery_kwh: float = 60.0
+    # linear calibration of the aggregate; diversity itself comes from the draws
+    diversity_factor: float = 1.0
 
     @classmethod
     def from_config(cls, cfg: dict[str, Any]) -> "EVConfig":
@@ -94,6 +108,129 @@ def _site_seed(neighbourhood_id: object, modulus: int) -> int:
 # ===========================================================================
 # EV
 # ===========================================================================
+def ev_daily_kwh(cfg: EVConfig) -> float:
+    """Mean energy drawn from the grid per car per day implied by the mileage settings."""
+    return float(cfg.annual_miles) / 365.0 / float(cfg.miles_per_kwh) / float(cfg.charge_efficiency)
+
+
+def _mean_plug_in_probability(cfg: EVConfig) -> float:
+    return (5.0 * cfg.weekday_charge_probability + 2.0 * cfg.weekend_charge_probability) / 7.0
+
+
+def ev_session_kwh(cfg: EVConfig) -> float:
+    """Mean energy per charging session: daily energy spread over the plug-in days."""
+    p = _mean_plug_in_probability(cfg)
+    return ev_daily_kwh(cfg) / p if p > 0 else 0.0
+
+
+def draw_ev_sessions(
+    unique_days: pd.DatetimeIndex,
+    n_ev: int,
+    cfg: EVConfig,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Draw every charging session for ``n_ev`` cars over ``unique_days``.
+
+    * **plug-in** -- each car plugs in on a day with the weekday / weekend
+      probability;
+    * **arrival** -- a truncated normal around the weekday / weekend mean
+      arrival hour, bounded by the charging window;
+    * **energy** -- lognormal around the mean session energy implied by the
+      mileage settings (``annual_miles`` / ``miles_per_kwh``), capped at the
+      battery size;
+    * **duration** -- energy / charger power, so a faster charger delivers the
+      same energy in a shorter, sharper session.
+
+    Returns one row per session: ``day_index, car, arrival_h, energy_kwh,
+    duration_h``.
+    """
+    from scipy.stats import truncnorm
+
+    cols = ["day_index", "car", "arrival_h", "energy_kwh", "duration_h"]
+    if n_ev <= 0 or len(unique_days) == 0:
+        return pd.DataFrame(columns=cols)
+
+    is_weekend = unique_days.dayofweek.to_numpy() >= 5
+    p_charge = np.where(is_weekend, cfg.weekend_charge_probability, cfg.weekday_charge_probability)
+    charging = rng.random((len(unique_days), n_ev)) < p_charge[:, None]
+    day_idx, car_idx = np.nonzero(charging)
+    n = day_idx.size
+    if n == 0:
+        return pd.DataFrame(columns=cols)
+
+    weekend = is_weekend[day_idx]
+    mean_h = np.where(weekend, cfg.weekend_arrival_mean_h, cfg.weekday_arrival_mean_h)
+    sd_h = np.where(weekend, cfg.weekend_arrival_sd_h, cfg.weekday_arrival_sd_h)
+    lo = (cfg.window_start_hour - mean_h) / sd_h
+    hi = (cfg.window_end_hour - mean_h) / sd_h
+    arrival = truncnorm.rvs(lo, hi, loc=mean_h, scale=sd_h, size=n, random_state=rng)
+
+    mean_kwh = ev_session_kwh(cfg)
+    sigma = np.sqrt(np.log1p(cfg.session_energy_cv**2))
+    mu = np.log(mean_kwh) - sigma**2 / 2.0
+    energy = np.minimum(rng.lognormal(mu, sigma, n), cfg.battery_kwh)
+
+    return pd.DataFrame(
+        {
+            "day_index": day_idx,
+            "car": car_idx,
+            "arrival_h": arrival,
+            "energy_kwh": energy,
+            "duration_h": energy / cfg.charger_kw,
+        }
+    )
+
+
+def simulate_ev_households(
+    timestamps: pd.DatetimeIndex,
+    n_ev: int,
+    config: EVConfig | None = None,
+    *,
+    seed: int = 42,
+    sessions: pd.DataFrame | None = None,
+) -> np.ndarray:
+    """Half-hourly charging energy per EV household: a ``(periods, n_ev)`` matrix.
+
+    Partial half-hour overlap is accounted for analytically, so a session
+    arriving at 18:12 contributes the correct fraction to the 18:00 period,
+    and sessions that run past midnight continue into the next day.
+    """
+    cfg = config or EVConfig()
+    timestamps = pd.DatetimeIndex(timestamps)
+    out = np.zeros((len(timestamps), max(int(n_ev), 0)))
+    if n_ev <= 0 or len(timestamps) == 0:
+        return out
+
+    day0 = timestamps[0].normalize()
+    abs_period = ((timestamps - day0).total_seconds().to_numpy() // (60 * 30)).astype(np.int64)
+    unique_days = pd.DatetimeIndex(sorted(set(timestamps.normalize())))
+    if sessions is None:
+        sessions = draw_ev_sessions(unique_days, n_ev, cfg, np.random.default_rng(seed))
+    if sessions.empty:
+        return out
+
+    day_offset = ((unique_days - day0).days.to_numpy() * PERIODS_PER_DAY).astype(np.int64)
+    start = sessions["arrival_h"].to_numpy() * 2.0  # fractional periods after midnight
+    end = start + sessions["duration_h"].to_numpy() * 2.0
+    car = sessions["car"].to_numpy()
+    base = day_offset[sessions["day_index"].to_numpy()] + np.floor(start).astype(np.int64)
+
+    n_slots = int(abs_period.max()) + PERIODS_PER_DAY * 2 + 1
+    energy_full_period = cfg.charger_kw * HOURS_PER_PERIOD  # kWh in a fully-charging half hour
+    acc = np.zeros((n_slots, n_ev))
+    for k in range(int(np.ceil((end - start).max())) + 2):
+        slot = base + k
+        lo = np.floor(start) + k
+        overlap = np.clip(np.minimum(end, lo + 1) - np.maximum(start, lo), 0.0, 1.0)
+        contrib = overlap * energy_full_period
+        valid = (contrib > 0) & (slot >= 0) & (slot < n_slots)
+        if valid.any():
+            np.add.at(acc, (slot[valid], car[valid]), contrib[valid])
+
+    out[:] = acc[abs_period]
+    return out * float(cfg.diversity_factor)
+
+
 def simulate_ev_load(
     timestamps: pd.DatetimeIndex,
     n_households: int,
@@ -106,8 +243,9 @@ def simulate_ev_load(
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Aggregate EV charging demand (kWh per half hour) on ``timestamps``.
 
-    ``timestamps`` must be a regular 30-minute index. Returns the Monte-Carlo
-    mean profile, optionally with the 10th/90th percentile band.
+    The sum over :func:`simulate_ev_households`. ``timestamps`` must be a
+    regular 30-minute index. Returns the Monte-Carlo mean profile, optionally
+    with the 10th/90th percentile band.
     """
     cfg = config or EVConfig()
     timestamps = pd.DatetimeIndex(timestamps)
@@ -116,52 +254,13 @@ def simulate_ev_load(
         zeros = np.zeros(len(timestamps))
         return (zeros, zeros, zeros) if return_band else zeros
 
-    # absolute half-hour index of every timestamp relative to the first day
-    day0 = timestamps[0].normalize()
-    abs_period = ((timestamps - day0).total_seconds().to_numpy() // (60 * 30)).astype(np.int64)
-    n_slots = int(abs_period.max()) + PERIODS_PER_DAY + 1
-
-    unique_days = pd.DatetimeIndex(sorted(set(timestamps.normalize())))
-    day_offset = ((unique_days - day0).days.to_numpy() * PERIODS_PER_DAY).astype(np.int64)
-    is_weekend = unique_days.dayofweek.to_numpy() >= 5
-    p_charge = np.where(is_weekend, cfg.weekend_charge_probability, cfg.weekday_charge_probability)
-
-    energy_full_period = cfg.charger_kw * HOURS_PER_PERIOD  # kWh in a fully-charging half hour
-    max_span = int(np.ceil(cfg.max_duration_h * 2)) + 2
-
-    profiles = np.zeros((runs, n_slots), dtype=float)
+    profiles = np.zeros((runs, len(timestamps)))
     for run in range(runs):
-        rng = np.random.default_rng(seed + 1009 * run)
-        n_days = len(unique_days)
+        profiles[run] = simulate_ev_households(timestamps, n_ev, cfg, seed=seed + 1009 * run).sum(axis=1)
 
-        charging = rng.random((n_days, n_ev)) < p_charge[:, None]
-        day_idx, _ = np.nonzero(charging)
-        n_sessions = day_idx.size
-        if n_sessions == 0:
-            continue
-
-        start = rng.uniform(
-            cfg.window_start_hour * 2, cfg.window_end_hour * 2, n_sessions
-        )  # fractional periods after midnight
-        duration = rng.uniform(cfg.min_duration_h * 2, cfg.max_duration_h * 2, n_sessions)
-        end = start + duration
-        base = day_offset[day_idx] + np.floor(start).astype(np.int64)
-
-        acc = profiles[run]
-        for k in range(max_span):
-            slot = base + k
-            lo = np.floor(start) + k
-            overlap = np.clip(np.minimum(end, lo + 1) - np.maximum(start, lo), 0.0, 1.0)
-            contrib = overlap * energy_full_period
-            valid = (contrib > 0) & (slot >= 0) & (slot < n_slots)
-            if valid.any():
-                np.add.at(acc, slot[valid], contrib[valid])
-
-    profiles *= cfg.diversity_factor
-    aligned = profiles[:, abs_period]
-    mean = aligned.mean(axis=0)
+    mean = profiles.mean(axis=0)
     if return_band:
-        return mean, np.percentile(aligned, 10, axis=0), np.percentile(aligned, 90, axis=0)
+        return mean, np.percentile(profiles, 10, axis=0), np.percentile(profiles, 90, axis=0)
     return mean
 
 
