@@ -53,6 +53,11 @@ class Paths:
         return self.processed_dir / "feature_table.parquet"
 
     @property
+    def model_ready_dir(self) -> Path:
+        """Per-neighbourhood, split-labelled model-ready artefacts (DRG-51)."""
+        return self.processed_dir / "model_ready"
+
+    @property
     def weather(self) -> Path:
         return self.external_dir / "weather_hourly.parquet"
 
