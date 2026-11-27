@@ -112,13 +112,19 @@ def check_peak_diversity(
 ) -> None:
     """Assert the combined peak is strictly below the sum of the individual peaks.
 
-    Two checks, both only when EV and heat pumps are both present:
+    Only applies when EV and heat pumps are both present.
 
-    * per neighbourhood, the peak of the added EV + heat-pump load is strictly
-      below the EV peak plus the heat-pump peak;
-    * when each technology on its own raises the neighbourhood peak by at
-      least ``min_component_pp`` percentage points, the combined peak
-      amplification is strictly below the sum of the two.
+    **Enforced** (raises :class:`DiversityError`): per neighbourhood, the peak
+    of the added EV + heat-pump load is strictly below the EV peak plus the
+    heat-pump peak. Equality means the two loads peaked in lock-step at the
+    same half-hour -- the signature of aggregating twice.
+
+    **Reported** (logged as a warning): the combined peak *amplification* is
+    expected to sit below the sum of the single-technology amplifications.
+    That is usual but not a physical law, because amplification is measured
+    against the base-demand peak, which can occur at a different time from
+    the EV or heat-pump peak; a short or unusual window can legitimately
+    super-add.
     """
     if not (summary.get("ev_adoption", 0) > 0 and summary.get("hp_adoption", 0) > 0):
         return
@@ -139,9 +145,12 @@ def check_peak_diversity(
     if ev_amp >= min_component_pp and hp_amp >= min_component_pp:
         combined = float(summary["peak_amplification_pct"])
         if not combined < ev_amp + hp_amp:
-            raise DiversityError(
-                f"combined peak amplification +{combined:.1f}% is not below EV +{ev_amp:.1f}% "
-                f"plus heat pump +{hp_amp:.1f}% (additive +{ev_amp + hp_amp:.1f}%)"
+            log.warning(
+                "combined peak amplification +%.1f%% is not below EV +%.1f%% plus heat pump +%.1f%%; "
+                "the base peak falls at a different time from the technology peaks in this window",
+                combined,
+                ev_amp,
+                hp_amp,
             )
 
 
