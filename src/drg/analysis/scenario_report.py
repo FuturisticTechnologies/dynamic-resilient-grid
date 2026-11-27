@@ -17,7 +17,10 @@ functions draw the matching figure.
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 
@@ -329,3 +332,167 @@ def plot_load_shape_overlay(profiles: pd.DataFrame, path: Path) -> Path:
     ax.grid(alpha=0.3)
     ax.legend(fontsize=8, loc="upper left")
     return _save(fig, path)
+
+
+# ===========================================================================
+# all artefacts
+# ===========================================================================
+@dataclass
+class ScenarioArtefacts:
+    """Paths of everything :func:`write_scenario_report` produced."""
+
+    tables: dict[str, Path] = field(default_factory=dict)
+    figures: dict[str, Path] = field(default_factory=dict)
+    summary: Path | None = None
+    manifest: Path | None = None
+    headline: dict[str, Any] = field(default_factory=dict)
+
+    def all_paths(self) -> list[Path]:
+        extra = [p for p in (self.summary, self.manifest) if p is not None]
+        return [*self.tables.values(), *self.figures.values(), *extra]
+
+
+def _markdown_table(df: pd.DataFrame, floatfmt: str = ".1f") -> str:
+    def fmt(value: Any) -> str:
+        if isinstance(value, (float, np.floating)):
+            return "" if not np.isfinite(value) else format(float(value), floatfmt)
+        return str(value)
+
+    df = df.copy()
+    for col in ("ev_adoption", "hp_adoption"):
+        if col in df:
+            df[col] = df[col].map(_pct_label)
+    header = "| " + " | ".join(str(c) for c in df.columns) + " |"
+    rule = "|" + "|".join("---" for _ in df.columns) + "|"
+    body = ["| " + " | ".join(fmt(v) for v in row) + " |" for row in df.itertuples(index=False)]
+    return "\n".join([header, rule, *body])
+
+
+def _headline(diversity: pd.DataFrame, stress: pd.DataFrame, shape: pd.DataFrame) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if len(diversity):
+        worst = diversity.loc[diversity["combined_amplification_pct"].idxmax()]
+        out.update(
+            worst_case_scenario=str(worst["scenario"]),
+            worst_case_combined_amplification_pct=float(worst["combined_amplification_pct"]),
+            worst_case_additive_amplification_pct=float(worst["additive_amplification_pct"]),
+            worst_case_diversity_gap_pp=float(worst["diversity_gap_pp"]),
+        )
+    if len(stress):
+        top = stress.loc[stress["stress_frequency_pct"].idxmax()]
+        out.update(
+            max_stress_frequency_pct=float(top["stress_frequency_pct"]),
+            max_stress_frequency_scenario=str(top["scenario"]),
+            max_mean_event_hours=float(stress["mean_event_hours"].max()),
+        )
+    if len(shape):
+        out["load_shape"] = shape.to_dict(orient="records")
+    return out
+
+
+def write_scenario_report(
+    grid: pd.DataFrame,
+    frames: dict[str, pd.DataFrame],
+    figure_dir: str | Path,
+    report_dir: str | Path,
+) -> ScenarioArtefacts:
+    """Write every scenario table and figure, a Markdown summary and a manifest.
+
+    ``grid`` is the sensitivity grid; ``frames`` maps scenario labels to the
+    ``apply_scenario`` frames used for the load-shape overlay (typically the
+    adoption ladder). Tables are CSV in ``report_dir``, figures PNG in
+    ``figure_dir``; ``scenario_artefacts.json`` lists them all.
+    """
+    figure_dir, report_dir = Path(figure_dir), Path(report_dir)
+    figure_dir.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    art = ScenarioArtefacts()
+
+    peak = peak_amplification_table(grid)
+    diversity = diversity_gap_table(grid)
+    stress = stress_escalation_table(grid)
+    profiles = load_shape_profiles(frames)
+    shape = load_shape_summary(profiles) if len(profiles) else pd.DataFrame()
+
+    tables = {
+        "peak_amplification": (peak.reset_index(), "scenario_peak_amplification.csv"),
+        "diversity_gap": (diversity, "scenario_diversity_gap.csv"),
+        "stress_escalation": (stress, "scenario_stress_escalation.csv"),
+        "load_shape": (profiles, "scenario_load_shape.csv"),
+        "load_shape_summary": (shape, "scenario_load_shape_summary.csv"),
+    }
+    for key, (df, name) in tables.items():
+        path = report_dir / name
+        df.to_csv(path, index=False)
+        art.tables[key] = path
+
+    art.figures["peak_amplification"] = plot_peak_amplification(
+        grid, figure_dir / "scenario_peak_amplification.png"
+    )
+    if len(diversity):
+        art.figures["diversity_gap"] = plot_diversity_gap(grid, figure_dir / "scenario_diversity_gap.png")
+    art.figures["stress_frequency_duration"] = plot_stress_frequency_duration(
+        grid, figure_dir / "scenario_stress_frequency_duration.png"
+    )
+    if len(profiles):
+        art.figures["load_shape_overlay"] = plot_load_shape_overlay(
+            profiles, figure_dir / "scenario_load_shape_overlay.png"
+        )
+
+    art.headline = _headline(diversity, stress, shape)
+
+    peak_md = peak.copy()
+    peak_md.index = [f"EV {_pct_label(i)}" for i in peak_md.index]
+    peak_md.columns = [f"HP {_pct_label(c)}" for c in peak_md.columns]
+    sections = [
+        "# Electrification scenario report",
+        "",
+        "Regenerated by `run-all`. Peak amplification is relative to the un-electrified peak; stress "
+        "is measured against the fixed historical thresholds.",
+        "",
+        "## Peak amplification by scenario (%)",
+        "",
+        _markdown_table(peak_md.reset_index(names="")),
+        "",
+        "## Diversity gap",
+        "",
+        _markdown_table(diversity.drop(columns=["combined_share_of_additive"])),
+        "",
+        "## Stress frequency and duration",
+        "",
+        _markdown_table(stress),
+        "",
+        "## Load shape (mean winter day)",
+        "",
+        _markdown_table(shape, floatfmt=".2f") if len(shape) else "_no scenario frames supplied_",
+        "",
+        "## Figures",
+        "",
+        *[f"- `{p.name}`" for p in art.figures.values()],
+        "",
+    ]
+    art.summary = report_dir / "scenario_report.md"
+    art.summary.write_text("\n".join(sections), encoding="utf-8")
+
+    art.manifest = report_dir / "scenario_artefacts.json"
+    art.manifest.write_text(
+        json.dumps(
+            {
+                "tables": {k: p.name for k, p in art.tables.items()},
+                "figures": {k: p.name for k, p in art.figures.items()},
+                "summary": art.summary.name,
+                "headline": art.headline,
+            },
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
+    log.info(
+        "scenario report: %s tables, %s figures -> %s, %s",
+        len(art.tables),
+        len(art.figures),
+        report_dir,
+        figure_dir,
+    )
+    return art
