@@ -22,6 +22,7 @@ attribution of the same draws; they are never re-combined into the total.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -193,3 +194,106 @@ def heat_pump_household_profiles(
     kw = np.clip(cfg.kw_per_degree * hdd[:, None] * shape * efficiency[None, :] * cycling, 0.0, cfg.rated_kw)
     out[:, hp_idx] = kw * HOURS_PER_PERIOD
     return out * float(cfg.diversity_factor)
+
+
+# ===========================================================================
+# superposition -> single aggregation
+# ===========================================================================
+@dataclass
+class NeighbourhoodLoad:
+    """Electrification load of one neighbourhood, aggregated exactly once.
+
+    ``total_runs`` holds, per Monte-Carlo run, the sum over households of each
+    household's superimposed EV + heat-pump load. ``ev_runs`` and
+    ``heat_pump_runs`` attribute the same draws to each technology; they add
+    up to ``total_runs`` but are never used to build it.
+    """
+
+    total_runs: np.ndarray
+    ev_runs: np.ndarray
+    heat_pump_runs: np.ndarray
+    n_households: int
+    n_ev: int
+    n_heat_pump: int
+    household_peak_kwh: float
+
+    @property
+    def runs(self) -> int:
+        return int(self.total_runs.shape[0])
+
+    @property
+    def total_kwh(self) -> np.ndarray:
+        return self.total_runs.mean(axis=0)
+
+    @property
+    def ev_kwh(self) -> np.ndarray:
+        return self.ev_runs.mean(axis=0)
+
+    @property
+    def heat_pump_kwh(self) -> np.ndarray:
+        return self.heat_pump_runs.mean(axis=0)
+
+    def band(self, which: str = "total", lo: float = 10, hi: float = 90) -> tuple[np.ndarray, np.ndarray]:
+        """Monte-Carlo percentile band of a series, from its per-run values."""
+        runs = {"total": self.total_runs, "ev": self.ev_runs, "heat_pump": self.heat_pump_runs}[which]
+        return np.percentile(runs, lo, axis=0), np.percentile(runs, hi, axis=0)
+
+
+def simulate_neighbourhood_load(
+    timestamps: pd.DatetimeIndex,
+    n_households: int,
+    ev_adoption: float,
+    hp_adoption: float,
+    temperature_c: np.ndarray | pd.Series | None = None,
+    ev_config: EVConfig | None = None,
+    hp_config: HeatPumpConfig | None = None,
+    *,
+    ev_seed: int = 42,
+    hp_seed: int = 42,
+    runs: int = 1,
+) -> NeighbourhoodLoad:
+    """Simulate, superimpose per household, then aggregate once.
+
+    Each technology draws from its own seeded stream (``ev_seed`` /
+    ``hp_seed`` plus a per-run offset), so the EV draws are identical whether
+    or not heat pumps are present. That makes EV-only, heat-pump-only and
+    combined scenarios directly comparable.
+    """
+    from drg.simulation.electrification import EVConfig, HeatPumpConfig
+
+    ev_cfg = ev_config or EVConfig()
+    hp_cfg = hp_config or HeatPumpConfig()
+    timestamps = pd.DatetimeIndex(timestamps)
+    n_periods, n_households, runs = len(timestamps), max(int(n_households), 0), max(int(runs), 1)
+
+    total = np.zeros((runs, n_periods))
+    ev_total = np.zeros((runs, n_periods))
+    hp_total = np.zeros((runs, n_periods))
+    household_peak = 0.0
+    n_ev = n_hp = 0
+    for run in range(runs):
+        ev_rng = np.random.default_rng(ev_seed + 1009 * run)
+        hp_rng = np.random.default_rng(hp_seed + 3607 * run)
+        ev_owners = adopter_mask(n_households, ev_adoption, ev_rng)
+        hp_owners = adopter_mask(n_households, hp_adoption, hp_rng)
+        n_ev, n_hp = int(ev_owners.sum()), int(hp_owners.sum())
+
+        ev_hh = ev_household_profiles(timestamps, ev_owners, ev_cfg, ev_rng)
+        hp_hh = heat_pump_household_profiles(timestamps, hp_owners, temperature_c, hp_cfg, hp_rng)
+
+        household = ev_hh + hp_hh  # superimpose per household, half-hourly
+        total[run] = household.sum(axis=1)  # aggregate once, at the end
+        ev_total[run] = ev_hh.sum(axis=1)  # attribution of the same draws
+        hp_total[run] = hp_hh.sum(axis=1)
+        if household.size:
+            household_peak = max(household_peak, float(household.max()))
+
+    return NeighbourhoodLoad(
+        total_runs=total,
+        ev_runs=ev_total,
+        heat_pump_runs=hp_total,
+        n_households=n_households,
+        n_ev=n_ev,
+        n_heat_pump=n_hp,
+        household_peak_kwh=household_peak,
+    )
