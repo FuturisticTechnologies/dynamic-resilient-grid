@@ -163,6 +163,23 @@ against the sum of the two single-technology cases — the two loads peak at ove
 identical times, so the combination is consistently *less* than additive, which is a planning-
 relevant result in itself.
 
+### Scenario reporting artefacts (`drg.analysis.scenario_report`)
+
+`stage_scenarios` calls `write_scenario_report` on every run, so `run-all` always regenerates the
+figures and tables behind the finding into `artifacts/figures` and `artifacts/reports`:
+
+- **peak amplification** — the EV × heat-pump adoption matrix, as a CSV and an annotated heatmap;
+- **diversity gap** — per combined scenario, EV alone, heat pumps alone, their sum and the
+  combined peak, plus a bar chart along the adoption ladder;
+- **stress frequency and duration** — against the fixed thresholds, with a two-panel figure;
+- **load-shape overlay** — the mean winter day for the base case and the adoption ladder (the
+  ladder is re-run with the grid's seed, so the profiles are the draws the grid scored), with a
+  summary of peak time, hours above today's peak and the evening share of the added energy.
+
+`scenario_report.md` gathers the tables, and `scenario_artefacts.json` is the manifest; the
+artefact paths are also recorded in `sensitivity_summary.json` and `run_report.json`, and CI
+fails if any of them is missing after `run-all`.
+
 ---
 
 ## 7. Explainability (`drg.explain`)

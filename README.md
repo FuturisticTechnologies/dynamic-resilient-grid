@@ -147,6 +147,21 @@ strongly recurrent, which is exactly what makes them forecastable and therefore 
 Regenerate all of these with `python -m drg.cli run-all`; the numbers land in
 `artifacts/reports/run_report.json`.
 
+**Scenario reporting artefacts.** The scenarios stage (run by `run-all` and by `scenarios`)
+rewrites the figures and tables behind the electrification finding every time it runs:
+
+| Artefact | Figure (`artifacts/figures/`) | Table (`artifacts/reports/`) |
+|---|---|---|
+| Peak amplification by scenario | `scenario_peak_amplification.png` | `scenario_peak_amplification.csv` |
+| Diversity gap (combined vs EV alone + heat pumps alone) | `scenario_diversity_gap.png` | `scenario_diversity_gap.csv` |
+| Stress frequency and duration | `scenario_stress_frequency_duration.png` | `scenario_stress_escalation.csv` |
+| Load-shape overlay (mean winter day, adoption ladder) | `scenario_load_shape_overlay.png` | `scenario_load_shape.csv`, `scenario_load_shape_summary.csv` |
+
+`scenario_report.md` collects the tables in one readable page, and `scenario_artefacts.json`
+lists every file plus the headline numbers. The load-shape summary reports where the
+amplification lands: peak time, hours per day above today's peak (how much the evening peak
+widens), and the evening share of the added energy.
+
 ---
 
 ## Data sources
@@ -230,7 +245,8 @@ python -m drg.cli --help
   features      Build the engineered feature table
   train         Train and evaluate the forecasting model ladder
   stress        Detect statistical stress periods and summarise them
-  scenarios     Run the EV / heat-pump adoption grid and sensitivity analysis
+  scenarios     Run the EV / heat-pump adoption grid and sensitivity analysis,
+                and write the scenario figures and tables
   explain       SHAP explainability for the champion model
   run-all       Every stage, end to end, into artifacts/reports/run_report.json
   replay        Replay historical demand as a live feed with stress alerts

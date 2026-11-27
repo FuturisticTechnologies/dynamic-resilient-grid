@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from drg.analysis.eda import run_eda
+from drg.analysis.scenario_report import ScenarioArtefacts, ladder, write_scenario_report
 from drg.analysis.sensitivity import (
     elasticity_curve,
     run_sensitivity_grid,
@@ -188,6 +189,30 @@ def _scenario_window(cfg: Config, demand: pd.DataFrame) -> pd.DataFrame:
     return window if len(window) else demand
 
 
+def stage_scenario_report(
+    cfg: Config,
+    grid: pd.DataFrame,
+    window: pd.DataFrame,
+    ev_cfg: EVConfig,
+    hp_cfg: HeatPumpConfig,
+) -> ScenarioArtefacts:
+    """Write the scenario reporting artefacts (DRG-84) to ``artifacts/``.
+
+    The load-shape overlay re-runs the adoption ladder (the diagonal of the
+    grid) with the grid's own seed, so the profiles are the same draws the
+    grid scored.
+    """
+    frames: dict[str, pd.DataFrame] = {}
+    for ev, hp in ladder(grid):
+        if ev == 0 and hp == 0:
+            continue
+        label = f"EV {int(round(ev * 100))}% + HP {int(round(hp * 100))}%"
+        frames[label] = apply_scenario(
+            window, ev, hp, ev_config=ev_cfg, hp_config=hp_cfg, seed=cfg.seed, runs=1
+        ).frame
+    return write_scenario_report(grid, frames, cfg.paths.figure_dir, cfg.paths.report_dir)
+
+
 def stage_scenarios(
     cfg: Config,
     demand: pd.DataFrame | None = None,
@@ -232,6 +257,13 @@ def stage_scenarios(
     write_table(curves, cfg.paths.report_dir / "elasticity_curves.parquet")
 
     headline = summarise_amplification(grid)
+    artefacts = stage_scenario_report(cfg, grid, window, ev_cfg, hp_cfg)
+    headline["report_artefacts"] = {
+        "summary": str(artefacts.summary),
+        "manifest": str(artefacts.manifest),
+        "figures": [str(p) for p in artefacts.figures.values()],
+        "tables": [str(p) for p in artefacts.tables.values()],
+    }
     (cfg.paths.report_dir / "sensitivity_summary.json").write_text(
         json.dumps(headline, indent=2, default=str), encoding="utf-8"
     )
@@ -356,6 +388,7 @@ def run_all(
             "summary": stress.summary.to_dict(orient="records"),
         },
         "electrification": headline,
+        "scenario_artefacts": headline.get("report_artefacts", {}),
         "explainability": explain,
     }
     path = cfg.paths.report_dir / "run_report.json"
