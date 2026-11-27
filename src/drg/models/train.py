@@ -100,6 +100,7 @@ def train_models(
                 label=label,
             )
         )
+
     predictions = test[["timestamp", "neighbourhood_id", target]].copy()
     predictions = predictions.rename(columns={target: "actual"})
 
