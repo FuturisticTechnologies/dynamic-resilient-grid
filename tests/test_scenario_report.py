@@ -43,9 +43,7 @@ def grid(window):
 @pytest.fixture(scope="module")
 def frames(window, grid):
     return {
-        f"EV{ev}_HP{hp}": apply_scenario(window, ev, hp, seed=5).frame
-        for ev, hp in ladder(grid)
-        if ev or hp
+        f"EV{ev}_HP{hp}": apply_scenario(window, ev, hp, seed=5).frame for ev, hp in ladder(grid) if ev or hp
     }
 
 

@@ -53,9 +53,13 @@ def _save(fig: plt.Figure, path: Path) -> Path:
 # ===========================================================================
 def peak_amplification_table(grid: pd.DataFrame) -> pd.DataFrame:
     """Peak amplification (%) as an EV-adoption x heat-pump-adoption matrix."""
-    table = grid.pivot_table(
-        index="ev_adoption", columns="hp_adoption", values="peak_amplification_pct", aggfunc="mean"
-    ).sort_index().sort_index(axis=1)
+    table = (
+        grid.pivot_table(
+            index="ev_adoption", columns="hp_adoption", values="peak_amplification_pct", aggfunc="mean"
+        )
+        .sort_index()
+        .sort_index(axis=1)
+    )
     table.index.name = "ev_adoption"
     table.columns.name = "hp_adoption"
     return table
