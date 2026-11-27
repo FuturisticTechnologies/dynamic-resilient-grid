@@ -221,3 +221,111 @@ def plot_stress_frequency_duration(grid: pd.DataFrame, path: Path) -> Path:
         ax.grid(alpha=0.3)
     ax_f.legend(title="Heat-pump adoption", fontsize=8)
     return _save(fig, path)
+
+
+# ===========================================================================
+# load-shape overlay
+# ===========================================================================
+WINTER_MONTHS = (12, 1, 2)
+EVENING = (16.0, 22.0)  # hours; the window the evening peak is judged against
+BASE_LABEL = "Base (no EV, no heat pump)"
+
+
+def _winter(frame: pd.DataFrame) -> pd.DataFrame:
+    winter = frame[frame["timestamp"].dt.month.isin(WINTER_MONTHS)]
+    return winter if len(winter) else frame
+
+
+def _diurnal(frame: pd.DataFrame, value_col: str) -> pd.Series:
+    """Mean winter day per neighbourhood, averaged across neighbourhoods."""
+    d = _winter(frame)
+    period = d["timestamp"].dt.hour * 2 + d["timestamp"].dt.minute // 30
+    per_site = d.groupby([d["neighbourhood_id"], period], observed=True)[value_col].mean()
+    profile = per_site.groupby(level=1).mean()
+    return profile.reindex(range(48))
+
+
+def load_shape_profiles(frames: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Mean winter-day load shape for the base case and each scenario.
+
+    ``frames`` maps a scenario label to an ``apply_scenario`` frame (with
+    ``base_kwh`` and ``electrified_kwh``). The base profile is taken from the
+    first frame. Returns a tidy table ``scenario, period, time, demand_kwh``.
+    """
+    if not frames:
+        return pd.DataFrame(columns=["scenario", "period", "time", "demand_kwh"])
+    first = next(iter(frames.values()))
+    profiles = {BASE_LABEL: _diurnal(first, "base_kwh")}
+    for label, frame in frames.items():
+        profiles[label] = _diurnal(frame, "electrified_kwh")
+    rows = []
+    for label, profile in profiles.items():
+        for period, value in profile.items():
+            rows.append(
+                {
+                    "scenario": label,
+                    "period": int(period),
+                    "time": f"{int(period) // 2:02d}:{30 * (int(period) % 2):02d}",
+                    "demand_kwh": float(value),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def load_shape_summary(profiles: pd.DataFrame) -> pd.DataFrame:
+    """Where the amplification lands, and how far the peak widens.
+
+    Per scenario: the profile peak and its time, the peak amplification of the
+    mean winter day, the hours per day spent above the base-case peak (the
+    widening), and the share of the added energy that lands in the evening
+    window.
+    """
+    base = profiles[profiles["scenario"] == BASE_LABEL].set_index("period")["demand_kwh"]
+    base_peak = float(base.max())
+    evening = (profiles["period"] >= EVENING[0] * 2) & (profiles["period"] < EVENING[1] * 2)
+    rows = []
+    for label, sub in profiles.groupby("scenario", sort=False):
+        series = sub.set_index("period")["demand_kwh"]
+        added = (series - base).clip(lower=0.0)
+        in_evening = evening[sub.index].to_numpy()
+        peak_period = int(series.idxmax())
+        peak = float(series.max())
+        rows.append(
+            {
+                "scenario": label,
+                "peak_kwh": peak,
+                "peak_time": f"{peak_period // 2:02d}:{30 * (peak_period % 2):02d}",
+                "peak_amplification_pct": 100.0 * (peak / base_peak - 1.0) if base_peak else 0.0,
+                "hours_above_base_peak": 0.5 * float((series > base_peak + 1e-9).sum()),
+                "evening_share_of_added_energy": (
+                    float(added[in_evening].sum() / added.sum()) if added.sum() > 0 else np.nan
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def plot_load_shape_overlay(profiles: pd.DataFrame, path: Path) -> Path:
+    """Overlay of the mean winter-day load shape, base case and scenario ladder."""
+    fig, ax = plt.subplots(figsize=(11, 5.8))
+    hours = np.arange(48) / 2.0
+    labels = [s for s in profiles["scenario"].unique() if s != BASE_LABEL]
+    cmap = plt.get_cmap("plasma")
+    base = profiles[profiles["scenario"] == BASE_LABEL].sort_values("period")["demand_kwh"].to_numpy()
+
+    ax.axvspan(*EVENING, color="grey", alpha=0.08, label="Evening window")
+    ax.axhline(np.nanmax(base), color="black", linewidth=0.8, linestyle=":", label="Base-case peak")
+    ax.plot(hours, base, color="black", linewidth=2.2, linestyle="--", label=BASE_LABEL)
+    for i, label in enumerate(labels):
+        series = profiles[profiles["scenario"] == label].sort_values("period")["demand_kwh"].to_numpy()
+        colour = cmap(0.1 + 0.8 * i / max(len(labels) - 1, 1))
+        ax.plot(hours, series, linewidth=1.8, color=colour, label=label)
+
+    ax.set_xlim(0, 23.5)
+    ax.set_xticks(range(0, 24, 2), [f"{h:02d}:00" for h in range(0, 24, 2)])
+    ax.set_xlabel("Time of day")
+    ax.set_ylabel("Mean winter-day demand per neighbourhood (kWh per half hour)")
+    ax.set_title("Load shape: where in the day electrification lands")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8, loc="upper left")
+    return _save(fig, path)
