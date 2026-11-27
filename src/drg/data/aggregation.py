@@ -176,9 +176,8 @@ def finalise_neighbourhood_demand(
     out["n_households_registered"] = np.maximum(out["n_households_registered"], out["n_households"])
 
     reporting = out["n_households"].where(out["n_households"] > 0)
-    out["household_coverage"] = (out["n_households"] / out["n_households_registered"].replace(0, np.nan)).fillna(
-        0.0
-    )
+    registered_nonzero = out["n_households_registered"].replace(0, np.nan)
+    out["household_coverage"] = (out["n_households"] / registered_nonzero).fillna(0.0)
     out["demand_per_household_kwh"] = out["demand_observed_kwh"] / reporting
     out["demand_kwh"] = out["demand_per_household_kwh"] * out["n_households_registered"]
 

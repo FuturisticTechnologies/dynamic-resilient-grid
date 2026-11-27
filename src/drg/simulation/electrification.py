@@ -246,12 +246,13 @@ def apply_scenario(
     hp_config: HeatPumpConfig | None = None,
     seed: int = 42,
     runs: int = 1,
-    households_col: str = "n_households",
+    households_col: str = "n_households_registered",
 ) -> ScenarioResult:
     """Add simulated EV + heat-pump load to a base demand frame.
 
     The input frame must contain ``timestamp``, ``neighbourhood_id``,
-    ``value_col`` and ``households_col``; ``temperature_c`` is used when
+    ``value_col`` and ``households_col`` (falling back to ``n_households``
+    for older tables); ``temperature_c`` is used when
     present. The returned frame adds ``ev_kwh``, ``heat_pump_kwh`` and
     ``electrified_kwh``.
     """
@@ -259,7 +260,9 @@ def apply_scenario(
     for nid, sub in df.groupby("neighbourhood_id", observed=True, sort=True):
         sub = sub.sort_values("timestamp").copy()
         ts = pd.DatetimeIndex(sub["timestamp"])
-        households = int(sub[households_col].iloc[0]) if households_col in sub else 100
+        # site size, not the half-hourly reporting count (DRG-29)
+        size_col = households_col if households_col in sub else "n_households"
+        households = int(sub[size_col].max()) if size_col in sub else 100
 
         ev = simulate_ev_load(
             ts, households, ev_adoption, ev_config, seed=seed + _site_seed(nid, 997), runs=runs

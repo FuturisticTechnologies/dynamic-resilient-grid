@@ -192,7 +192,8 @@ flagged_hist = detect_stress(site_demand, thresholds)
 
 st.title("Dynamic Resilient Grid")
 st.caption(
-    f"{site} · {int(site_demand['n_households'].iloc[0])} households · "
+    f"{site} · "
+    f"{int(site_demand.get('n_households_registered', site_demand['n_households']).max())} households · "
     f"{site_demand['timestamp'].min():%b %Y} – {site_demand['timestamp'].max():%b %Y} · "
     f"data source: {site_demand.get('source', pd.Series(['n/a'])).iloc[0]}"
 )

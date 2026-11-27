@@ -4,9 +4,10 @@ The published half-hourly release is a set of very large CSVs with the
 columns ``LCLid, stdorToU, DateTime, KWH/hh (per half hour)``. They are read
 in chunks so the pipeline runs inside the 8 GB RAM stated in the proposal
 system requirements; households are folded into fixed-size low-voltage
-"neighbourhood" groups by a stable hash of the meter id, and each chunk is
-aggregated immediately so peak memory stays proportional to the chunk, not
-to the dataset.
+"neighbourhood" groups (4 x ~120 by default) ordered by a stable hash of the
+meter id, and each chunk is aggregated immediately so peak memory stays
+proportional to the chunk, not to the dataset. The number of households that
+reported in every half-hour is kept alongside the total (DRG-29).
 """
 
 from __future__ import annotations
@@ -19,6 +20,13 @@ import numpy as np
 import pandas as pd
 
 from drg.config import Config
+from drg.data.aggregation import (
+    aggregate_household_reads,
+    assign_neighbourhoods,
+    combine_partial_aggregates,
+    finalise_neighbourhood_demand,
+    registered_counts,
+)
 from drg.data.synthetic import generate_synthetic_neighbourhoods
 from drg.utils.io import write_table
 from drg.utils.logging_utils import get_logger
@@ -86,11 +94,38 @@ def _iter_chunks(path: Path, chunk_size: int) -> Iterator[pd.DataFrame]:
     )
 
 
+def _normalise_chunk(chunk: pd.DataFrame, cols: dict[str, str]) -> pd.DataFrame:
+    df = chunk[[cols["household_id"], cols["timestamp"], cols["energy_kwh"]]].copy()
+    df.columns = ["household_id", "timestamp", "demand_kwh"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", format="mixed")
+    df["demand_kwh"] = pd.to_numeric(df["demand_kwh"], errors="coerce")
+    return df.dropna(subset=["timestamp", "household_id", "demand_kwh"])
+
+
+def _scan_household_ids(files: list[Path], mapping: dict[str, str], chunk_size: int) -> set[str]:
+    """First pass: collect meter ids only, so membership can be fixed up front."""
+    ids: set[str] = set()
+    for path in files:
+        header = pd.read_csv(path, nrows=0)
+        cols = _resolve_columns(header.columns, mapping)
+        if "household_id" not in cols:
+            log.warning("skipping %s: cannot resolve the household id column", path.name)
+            continue
+        for chunk in pd.read_csv(
+            path, usecols=[cols["household_id"]], chunksize=chunk_size, on_bad_lines="skip"
+        ):
+            ids.update(chunk[cols["household_id"]].dropna().astype(str).unique().tolist())
+    return ids
+
+
 def load_lcl_halfhourly(cfg: Config, files: list[Path] | None = None) -> pd.DataFrame:
     """Aggregate raw LCL meter readings into neighbourhood half-hourly demand.
 
-    Returns tidy columns ``timestamp, neighbourhood_id, demand_kwh,
-    n_households``.
+    Households are assigned to ``n_neighbourhoods`` fixed-size groups of
+    ``households_per_neighbourhood`` meters (see
+    :func:`drg.data.aggregation.assign_neighbourhoods`). Returns the columns in
+    :data:`drg.data.aggregation.AGGREGATE_COLUMNS`, including the number of
+    households that actually reported in each half-hour.
     """
     files = files if files is not None else discover_lcl_files(cfg)
     if not files:
@@ -101,13 +136,19 @@ def load_lcl_halfhourly(cfg: Config, files: list[Path] | None = None) -> pd.Data
         )
 
     n_groups = int(cfg.data.get("n_neighbourhoods", 4))
+    per_group = int(cfg.data.get("households_per_neighbourhood", 120))
+    min_cov = float(cfg.data.get("min_household_coverage", 0.5))
     mapping = cfg.data["column_map"]
     chunk_size = int(cfg.data.get("chunk_size", 1_000_000))
 
-    sums: list[pd.DataFrame] = []
-    members: dict[int, set[str]] = {g: set() for g in range(n_groups)}
-    total_rows = 0
+    membership = assign_neighbourhoods(_scan_household_ids(files, mapping, chunk_size), n_groups, per_group)
+    log.info(
+        "neighbourhood membership: %s",
+        ", ".join(f"{k}={v}" for k, v in sorted(registered_counts(membership).items())),
+    )
 
+    parts: list[pd.DataFrame] = []
+    total_rows = 0
     for path in files:
         log.info("reading %s (%.1f MB)", path.name, path.stat().st_size / 1e6)
         for chunk in _iter_chunks(path, chunk_size):
@@ -116,55 +157,36 @@ def load_lcl_halfhourly(cfg: Config, files: list[Path] | None = None) -> pd.Data
             if missing:
                 log.warning("skipping %s: cannot resolve columns %s", path.name, missing)
                 break
-
-            df = chunk[[cols["household_id"], cols["timestamp"], cols["energy_kwh"]]].copy()
-            df.columns = ["household_id", "timestamp", "demand_kwh"]
-            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", format="mixed")
-            df["demand_kwh"] = pd.to_numeric(df["demand_kwh"], errors="coerce")
-            df = df.dropna(subset=["timestamp", "household_id", "demand_kwh"])
+            df = _normalise_chunk(chunk, cols)
             if df.empty:
                 continue
-
-            df["timestamp"] = df["timestamp"].dt.floor("30min")
-            group = df["household_id"].map(lambda x: _stable_group(x, n_groups))
-            df["neighbourhood_id"] = "N" + (group + 1).astype(str).str.zfill(2)
-
-            for gid, sub in df.groupby(group):
-                members[int(gid)].update(sub["household_id"].unique().tolist())
-
-            agg = (
-                df.groupby(["timestamp", "neighbourhood_id"], observed=True)
-                .agg(demand_kwh=("demand_kwh", "sum"), meters=("household_id", "nunique"))
-                .reset_index()
-            )
-            sums.append(agg)
+            parts.append(aggregate_household_reads(df, membership))
             total_rows += len(df)
 
-    if not sums:
+    partial = combine_partial_aggregates(parts)
+    if partial.empty:
         raise ValueError("LCL files were found but no usable rows could be parsed.")
 
-    out = (
-        pd.concat(sums, ignore_index=True)
-        .groupby(["timestamp", "neighbourhood_id"], observed=True)
-        .agg(demand_kwh=("demand_kwh", "sum"), meters=("meters", "max"))
-        .reset_index()
-    )
-    counts = {f"N{g + 1:02d}": len(v) for g, v in members.items()}
-    out["n_households"] = out["neighbourhood_id"].map(counts).fillna(out["meters"]).astype(int)
-    out = out.drop(columns=["meters"])
+    out = finalise_neighbourhood_demand(partial, registered_counts(membership), min_cov)
     log.info(
         "aggregated %s raw readings -> %s neighbourhood rows",
         f"{total_rows:,}",
         f"{len(out):,}",
     )
-    return out.sort_values(["neighbourhood_id", "timestamp"]).reset_index(drop=True)
+    return out
 
 
 # --------------------------------------------------------------------------
 # cleaning
 # --------------------------------------------------------------------------
 def clean_demand(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
-    """Regularise the grid, repair short gaps, clip outliers, drop thin days."""
+    """Regularise the grid, repair short gaps, clip outliers, drop thin days.
+
+    Half-hours masked for low household coverage arrive as NaN demand and are
+    repaired or dropped exactly like missing readings. ``n_households`` keeps
+    the count that actually reported (0 for a filled-in half-hour) and
+    ``is_imputed`` flags rows whose demand was interpolated.
+    """
     q = cfg.data.get("quality", {})
     max_gap = int(q.get("max_gap_periods", 6))
     z_thresh = float(q.get("outlier_z", 6.0))
@@ -177,9 +199,19 @@ def clean_demand(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
         sub = sub.set_index("timestamp").reindex(full)
         sub.index.name = "timestamp"
         sub["neighbourhood_id"] = nid
-        sub["n_households"] = sub["n_households"].ffill().bfill()
+        # Household counts: a half-hour with no row had no meter reporting, so
+        # its contributing count is 0; the registered size is a site property.
+        if "n_households_registered" not in sub:
+            sub["n_households_registered"] = sub["n_households"]
+        sub["n_households_registered"] = sub["n_households_registered"].ffill().bfill()
+        sub["n_households"] = sub["n_households"].fillna(0)
+        if "demand_observed_kwh" in sub:
+            sub["household_coverage"] = (
+                sub["n_households"] / sub["n_households_registered"].replace(0, np.nan)
+            ).fillna(0.0)
 
         series = sub["demand_kwh"]
+        was_missing = series.isna()
 
         # robust outlier clip (median absolute deviation)
         med = series.median()
@@ -196,6 +228,9 @@ def clean_demand(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
         # interpolate short gaps only; long gaps stay NaN and are dropped
         series = series.interpolate(method="time", limit=max_gap, limit_area="inside")
         sub["demand_kwh"] = series
+        sub["is_imputed"] = was_missing & series.notna()
+        if "demand_per_household_kwh" in sub:
+            sub["demand_per_household_kwh"] = series / sub["n_households_registered"].replace(0, np.nan)
 
         # drop days with insufficient coverage
         sub["date"] = sub.index.date
@@ -207,6 +242,7 @@ def clean_demand(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
 
     out = pd.concat(cleaned, ignore_index=True)
     out["n_households"] = out["n_households"].astype(int)
+    out["n_households_registered"] = out["n_households_registered"].astype(int)
     log.info(
         "cleaning: %s -> %s rows retained (%.1f%%)",
         f"{len(df):,}",
@@ -269,6 +305,7 @@ def build_neighbourhood_demand(cfg: Config, force: bool = False) -> pd.DataFrame
             households_per_neighbourhood=int(syn["households_per_neighbourhood"]),
             seed=cfg.seed,
             temperature=_observed_temperature(cfg, index),
+            min_household_coverage=float(cfg.data.get("min_household_coverage", 0.5)),
         )
         source = "synthetic"
 

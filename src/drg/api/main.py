@@ -140,6 +140,14 @@ def context() -> dict[str, Any]:
     )
 
 
+def _site_size(sub: pd.DataFrame) -> int | None:
+    """Registered households for a site (falls back to the reporting count)."""
+    if not len(sub):
+        return None
+    col = "n_households_registered" if "n_households_registered" in sub else "n_households"
+    return int(sub[col].max())
+
+
 @app.get("/neighbourhoods")
 def neighbourhoods() -> list[dict[str, Any]]:
     demand = _demand()
@@ -149,7 +157,12 @@ def neighbourhoods() -> list[dict[str, Any]]:
         out.append(
             {
                 **th.to_dict(),
-                "n_households": int(sub["n_households"].iloc[0]) if len(sub) else None,
+                "n_households": _site_size(sub),
+                "mean_household_coverage": (
+                    round(float(sub["household_coverage"].mean()), 4)
+                    if len(sub) and "household_coverage" in sub
+                    else None
+                ),
                 "first_reading": str(sub["timestamp"].min()),
                 "last_reading": str(sub["timestamp"].max()),
             }
