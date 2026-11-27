@@ -234,18 +234,15 @@ def feature_columns(df: pd.DataFrame) -> list[str]:
 def chronological_split(
     df: pd.DataFrame, test_days: int = 60, val_days: int = 30
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Split by wall-clock time so no future information reaches training."""
-    end = df["timestamp"].max()
-    test_start = end - pd.Timedelta(days=test_days)
-    val_start = test_start - pd.Timedelta(days=val_days)
-    train = df[df["timestamp"] < val_start]
-    val = df[(df["timestamp"] >= val_start) & (df["timestamp"] < test_start)]
-    test = df[df["timestamp"] >= test_start]
-    log.info(
-        "split -> train %s | val %s | test %s (test from %s)",
-        f"{len(train):,}",
-        f"{len(val):,}",
-        f"{len(test):,}",
-        test_start.date(),
-    )
-    return train.copy(), val.copy(), test.copy()
+    """Split by wall-clock time so no future information reaches training.
+
+    Thin wrapper over :func:`drg.models.windows.define_windows`: windows are
+    half-open and end one period after the last reading, so ``test_days=60``
+    yields exactly 2,880 half-hours per neighbourhood. The training harness
+    uses :class:`~drg.models.windows.SplitWindows` directly so the same dates
+    are enforced for every model (DRG-57).
+    """
+    from drg.models.windows import define_windows
+
+    windows = define_windows(df["timestamp"], test_days=test_days, val_days=val_days)
+    return windows.split(df, require_all=False)
