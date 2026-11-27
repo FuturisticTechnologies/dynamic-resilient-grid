@@ -22,9 +22,15 @@ attribution of the same draws; they are never re-combined into the total.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
+import pandas as pd
 
 from drg.utils.logging_utils import get_logger
+
+if TYPE_CHECKING:  # configs live with the public API; avoid an import cycle
+    from drg.simulation.electrification import EVConfig
 
 log = get_logger(__name__)
 
@@ -51,3 +57,64 @@ def adopter_mask(n_households: int, adoption: float, rng: np.random.Generator) -
     if n_adopt:
         mask[rng.permutation(n_households)[:n_adopt]] = True
     return mask
+
+
+# ===========================================================================
+# EV -- per household
+# ===========================================================================
+def ev_household_profiles(
+    timestamps: pd.DatetimeIndex,
+    owners: np.ndarray,
+    cfg: EVConfig,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """EV charging energy (kWh per half hour) per household.
+
+    Returns a ``(len(timestamps), len(owners))`` matrix; households without an
+    EV are all zero. Each owner plugs in on a given day with the weekday /
+    weekend probability, at a uniformly random time inside the charging
+    window, for a uniformly random session length. Partial half-hour overlap
+    is accounted for analytically. ``cfg.diversity_factor`` is applied per
+    household as an energy calibration; it is linear, so it never stands in
+    for the timing diversity produced by the draws themselves.
+    """
+    timestamps = pd.DatetimeIndex(timestamps)
+    n_periods, n_households = len(timestamps), len(owners)
+    out = np.zeros((n_periods, n_households), dtype=float)
+    ev_idx = np.flatnonzero(owners)
+    if n_periods == 0 or ev_idx.size == 0:
+        return out
+
+    day0 = timestamps[0].normalize()
+    abs_period = ((timestamps - day0).total_seconds().to_numpy() // (60 * 30)).astype(np.int64)
+    n_slots = int(abs_period.max()) + PERIODS_PER_DAY + 1
+
+    unique_days = pd.DatetimeIndex(sorted(set(timestamps.normalize())))
+    day_offset = ((unique_days - day0).days.to_numpy() * PERIODS_PER_DAY).astype(np.int64)
+    is_weekend = unique_days.dayofweek.to_numpy() >= 5
+    p_charge = np.where(is_weekend, cfg.weekend_charge_probability, cfg.weekday_charge_probability)
+
+    charging = rng.random((len(unique_days), ev_idx.size)) < p_charge[:, None]
+    day_idx, car_idx = np.nonzero(charging)
+    if day_idx.size == 0:
+        return out
+
+    start = rng.uniform(cfg.window_start_hour * 2, cfg.window_end_hour * 2, day_idx.size)
+    duration = rng.uniform(cfg.min_duration_h * 2, cfg.max_duration_h * 2, day_idx.size)
+    end = start + duration
+    base = day_offset[day_idx] + np.floor(start).astype(np.int64)
+    household = ev_idx[car_idx]
+
+    energy_full_period = cfg.charger_kw * HOURS_PER_PERIOD
+    acc = np.zeros((n_slots, n_households), dtype=float)
+    for k in range(int(np.ceil(cfg.max_duration_h * 2)) + 2):
+        slot = base + k
+        lo = np.floor(start) + k
+        overlap = np.clip(np.minimum(end, lo + 1) - np.maximum(start, lo), 0.0, 1.0)
+        contrib = overlap * energy_full_period
+        valid = (contrib > 0) & (slot >= 0) & (slot < n_slots)
+        if valid.any():
+            np.add.at(acc, (slot[valid], household[valid]), contrib[valid])
+
+    out[:] = acc[abs_period]
+    return out * float(cfg.diversity_factor)
