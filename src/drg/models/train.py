@@ -1,15 +1,18 @@
 """Training orchestration.
 
-Trains the full model ladder on the chronologically split feature table:
+Trains the full model ladder on one set of chronological windows
+(:class:`drg.models.windows.SplitWindows`, DRG-57) shared by every model:
 
 1. seasonal naive (operational status quo),
 2. linear regression and ridge (interpretable baselines),
 3. XGBoost (primary model, early-stopped on the validation window),
 4. LSTM (optional deep extension, skipped cleanly when torch is absent),
 
-evaluates every model on the held-out test window with MAE / RMSE / MAPE / R2
-plus peak-period and stress-alarm skill, runs rolling-origin cross-validation
-for the champion, and persists the winning bundle.
+selects the champion on the *validation* window, then reports every model on
+the held-out test window with MAE / RMSE / MAPE / R2 plus peak-period and
+stress-alarm skill. The test window plays no part in fitting or selection.
+Rolling-origin cross-validation runs on train + validation only, and the
+resolved windows are persisted with the metrics and every model bundle.
 """
 
 from __future__ import annotations
@@ -23,11 +26,12 @@ import numpy as np
 import pandas as pd
 
 from drg.config import Config
-from drg.features.engineering import chronological_split, feature_columns
+from drg.features.engineering import feature_columns
 from drg.models.baseline import BaselineForecaster, SeasonalNaiveForecaster
 from drg.models.evaluate import evaluate_forecast, metrics_table
 from drg.models.gbm import XGBoostForecaster, rolling_origin_validate
 from drg.models.registry import ModelBundle, save_model
+from drg.models.windows import SplitWindows, windows_from_config
 from drg.utils.logging_utils import get_logger
 
 log = get_logger(__name__)
@@ -39,11 +43,15 @@ class TrainingResult:
     metrics: pd.DataFrame
     cv_metrics: pd.DataFrame
     predictions: pd.DataFrame
+    windows: SplitWindows | None = None
+    validation_metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
     bundles: dict[str, ModelBundle] = field(default_factory=dict)
     model_path: Path | None = None
 
     def headline(self) -> dict[str, Any]:
-        row = self.metrics.iloc[0].to_dict()
+        """Test-window metrics of the champion (selected on validation)."""
+        rows = self.metrics[self.metrics["model"] == self.best.name]
+        row = (rows if len(rows) else self.metrics).iloc[0].to_dict()
         return {k: v for k, v in row.items() if not isinstance(v, (list, dict))}
 
 
@@ -57,26 +65,41 @@ def train_models(
     *,
     train_lstm: bool | None = None,
     save: bool = True,
+    windows: SplitWindows | None = None,
 ) -> TrainingResult:
+    """Train, select and report the model ladder on one set of windows.
+
+    ``windows`` defaults to the configured project windows resolved on
+    ``features``. An empty window raises instead of borrowing rows from a
+    neighbouring one, so training never leaks into validation or test.
+    """
     mcfg = cfg.models
     target = "target"
     feat_cols = feature_columns(features)
     log.info("training on %s features: %s ...", len(feat_cols), ", ".join(feat_cols[:8]))
 
-    train, val, test = chronological_split(
-        features,
-        test_days=int(mcfg.get("test_size_days", 60)),
-        val_days=int(mcfg.get("val_size_days", 30)),
-    )
-    if val.empty:
-        val = train.tail(max(1, len(train) // 10))
+    windows = windows or windows_from_config(cfg, features["timestamp"])
+    train, val, test = windows.split(features)
+    window_meta = windows.to_dict()
 
     stress_threshold = _global_stress_threshold(
         train, float(cfg.stress.get("primary_percentile", 95)), target
     )
 
     results: list[dict[str, Any]] = []
+    val_results: list[dict[str, Any]] = []
     bundles: dict[str, ModelBundle] = {}
+
+    def _validate(label: str, pred: np.ndarray) -> None:
+        val_results.append(
+            evaluate_forecast(
+                val[target],
+                pred,
+                timestamps=val["timestamp"],
+                stress_threshold=stress_threshold,
+                label=label,
+            )
+        )
     predictions = test[["timestamp", "neighbourhood_id", target]].copy()
     predictions = predictions.rename(columns={target: "actual"})
 
@@ -84,6 +107,7 @@ def train_models(
     naive = SeasonalNaiveForecaster()
     if "lag_48" in test.columns:
         naive.fit(train)
+        _validate("seasonal_naive", naive.predict(val))
         pred = naive.predict(test)
         predictions["seasonal_naive"] = pred
         results.append(
@@ -102,6 +126,7 @@ def train_models(
             ridge=ridge, fit_intercept=bool(cfg.get("models.baseline.fit_intercept", True))
         )
         model.fit(train[feat_cols], train[target].to_numpy())
+        _validate(label, model.predict(val[feat_cols]))
         pred = model.predict(test[feat_cols])
         predictions[label] = pred
         results.append(
@@ -118,7 +143,11 @@ def train_models(
             estimator=model,
             feature_columns=feat_cols,
             kind="sklearn",
-            metadata={"train_rows": len(train), "train_end": str(train["timestamp"].max())},
+            metadata={
+                "train_rows": len(train),
+                "train_end": str(train["timestamp"].max()),
+                "windows": window_meta,
+            },
             metrics=results[-1],
         )
 
@@ -127,6 +156,7 @@ def train_models(
     xgb_params.setdefault("random_state", cfg.seed)
     gbm = XGBoostForecaster(**xgb_params)
     gbm.fit(train[feat_cols], train[target].to_numpy(), val[feat_cols], val[target].to_numpy())
+    _validate("xgboost", gbm.predict(val[feat_cols]))
     pred = gbm.predict(test[feat_cols])
     predictions["xgboost"] = pred
     results.append(
@@ -147,6 +177,7 @@ def train_models(
             "train_rows": len(train),
             "train_end": str(train["timestamp"].max()),
             "best_iteration": gbm.best_iteration,
+            "windows": window_meta,
             "params": {k: str(v) for k, v in gbm.params.items()},
         },
         metrics=results[-1],
@@ -180,6 +211,7 @@ def train_models(
                 label, kind = "mlp_sequence", "sklearn"
 
             deep.fit(train, feat_cols, target, val=val)
+            _validate(label, deep.predict(val, target_col=target))
             pred = deep.predict(test, target_col=target)
             predictions[label] = pred
             results.append(
@@ -199,6 +231,7 @@ def train_models(
                 metadata={
                     "sequence_length": getattr(getattr(deep, "params", deep), "sequence_length", None),
                     "epochs_run": len(getattr(deep, "history", [])) or None,
+                    "windows": window_meta,
                 },
                 metrics=results[-1],
             )
@@ -206,11 +239,18 @@ def train_models(
             log.warning("deep-learning stage skipped: %s", exc)
 
     # ------------------------------------------------------------ selection
+    # The champion is chosen on the validation window; the test window is
+    # only read below, for reporting.
     table = metrics_table(results)
-    ranked = [r for r in table["model"].tolist() if r in bundles]
+    val_table = metrics_table(val_results)
+    ranked = [r for r in val_table["model"].tolist() if r in bundles]
     best_name = ranked[0] if ranked else "xgboost"
     best = bundles[best_name]
-    log.info("champion model: %s (RMSE=%.4f)", best_name, table.iloc[0]["rmse"])
+    log.info(
+        "champion model: %s (validation RMSE=%.4f)",
+        best_name,
+        float(val_table.loc[val_table["model"] == best_name, "rmse"].iloc[0]),
+    )
 
     # ------------------------------------------- rolling-origin CV (champion)
     cv = pd.DataFrame()
@@ -256,6 +296,9 @@ def train_models(
                     "test_metrics": results,
                     "cv_metrics": cv.to_dict(orient="records") if len(cv) else [],
                     "champion": best_name,
+                    "selection_window": "validation",
+                    "validation_metrics": val_results,
+                    "windows": window_meta,
                     "stress_threshold_kwh": stress_threshold,
                     "n_features": len(feat_cols),
                     "features": feat_cols,
@@ -268,12 +311,15 @@ def train_models(
             encoding="utf-8",
         )
         predictions.to_parquet(cfg.paths.forecast_output, index=False)
+        windows.save(cfg.paths.split_windows)
 
     return TrainingResult(
         best=best,
         metrics=table,
         cv_metrics=cv,
         predictions=predictions,
+        windows=windows,
+        validation_metrics=val_table,
         bundles=bundles,
         model_path=model_path,
     )
