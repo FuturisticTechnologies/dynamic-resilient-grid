@@ -32,6 +32,10 @@ data:
   # low-voltage feeder groups of this size.
   households_per_neighbourhood: 120
   n_neighbourhoods: 4
+  # Partial households: a half-hour where fewer than this share of a
+  # neighbourhood's registered households reported is treated as a gap rather
+  # than as a drop in demand (DRG-29).
+  min_household_coverage: 0.5
   # Fallback synthetic generator (used when no LCL files are present)
   synthetic:
     enabled: true
