@@ -138,16 +138,33 @@ the resulting kWh/car/day is reported in every scenario summary.
 
 Electrical input rises with heating degrees below the balance-point temperature, is shaped by
 morning and evening occupancy peaks with an overnight setback, is scaled by a per-household
-efficiency spread, modulated by thermostat cycling, and is **clipped at the unit rating** — the
+efficiency spread, shifted by a per-household schedule offset, modulated by that household's own
+thermostat cycling (plus a small fleet-wide term), and is **clipped at the unit rating** — the
 clip is applied after cycling, so no unit can ever draw more than it is rated for. Without a
 temperature series the model degrades to a winter-seasonal proxy.
 
-### Aggregation
+### Aggregation (DRG-80)
 
-Technology-specific diversity factors are applied to the aggregate, and the whole simulation is
-repeated `monte_carlo_runs` times so a headline scenario carries a distribution rather than a
-single draw. Each scenario reports peak amplification, energy growth, per-technology ADMD and
-kWh/car/day.
+`drg.simulation.household` keeps every load as a `(half-hours x households)` matrix. EV and
+heat-pump load is **superimposed per household, then summed to the neighbourhood exactly once**.
+Summing each technology to the neighbourhood first and combining afterwards would throw away the
+time offsets between households, and the combined peak would come out additive.
+Per-technology series are kept only as an attribution of the same draws.
+
+Each technology has its own seeded random stream, so EV-only, heat-pump-only and combined
+scenarios share identical draws and can be compared directly. The configured per-technology
+`diversity_factor` is applied to each household as a linear energy calibration; it never stands in
+for timing diversity.
+
+`check_peak_diversity` encodes the physical rule: with both technologies present, the combined
+EV + heat-pump peak must be strictly below the EV peak plus the heat-pump peak, or the scenario
+raises `DiversityError`. Peak amplification is measured against the base peak, which can fall at
+another time, so a super-additive *amplification* is only logged as a warning.
+
+The whole simulation is repeated `monte_carlo_runs` times so a headline scenario carries a
+distribution rather than a single draw. Each scenario reports peak amplification, the EV-only,
+heat-pump-only and additive amplification, `diversity_gain_pp`, energy growth, per-technology
+ADMD and kWh/car/day.
 
 ---
 
@@ -159,7 +176,8 @@ a multiple of the base case, event-duration growth, energy above threshold and t
 
 `elasticity_curve` differentiates peak amplification with respect to adoption to give a marginal
 "% peak per 10 percentage points" figure, and `summarise_amplification` reports the combined case
-against the sum of the two single-technology cases — the two loads peak at overlapping but not
+against the sum of the two single-technology cases of the same draws (`combined_vs_additive_pp`,
+`worst_case_diversity_gain_pp`) — the two loads peak at overlapping but not
 identical times, so the combination is consistently *less* than additive, which is a planning-
 relevant result in itself.
 

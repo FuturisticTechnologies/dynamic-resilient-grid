@@ -122,6 +122,10 @@ electrification:
     diversity_factor: 0.7
     adoption_levels: [0.0, 0.15, 0.3, 0.5, 0.7]
   monte_carlo_runs: 30
+  # DRG-80: EV and heat-pump load is superimposed per household and
+  # aggregated once. Stop a scenario if the combined EV + heat-pump peak is not
+  # strictly below the sum of the single-technology peaks (lost diversity).
+  check_diversity: true
 
 streaming:
   speed_factor: 240              # 1 real second == 240 simulated seconds

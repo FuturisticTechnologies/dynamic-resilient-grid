@@ -18,9 +18,13 @@ evening occupancy peaks, and is capped at the unit rated input. When the
 temperature series is unavailable the model degrades to a winter-seasonal
 proxy.
 
-Aggregate profiles apply a technology-specific *diversity factor*, and the
-whole simulation is repeated ``monte_carlo_runs`` times so the reported
-scenario carries a mean and an uncertainty band rather than a single draw.
+EV and heat-pump load is superimposed per household at half-hourly
+resolution and aggregated to the neighbourhood exactly once, at the end
+(:mod:`drg.simulation.household`, DRG-80); aggregating each technology first
+destroys the time offsets between households and makes the combined peak
+additive. ``check_peak_diversity`` guards that physical fact. The whole
+simulation is repeated ``monte_carlo_runs`` times so the reported scenario
+carries a mean and an uncertainty band rather than a single draw.
 """
 
 from __future__ import annotations
@@ -32,12 +36,27 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from drg.simulation.household import (
+    HOURS_PER_PERIOD,
+    PERIODS_PER_DAY,
+    simulate_neighbourhood_load,
+)
 from drg.utils.logging_utils import get_logger
 
 log = get_logger(__name__)
 
-PERIODS_PER_DAY = 48
-HOURS_PER_PERIOD = 0.5
+__all__ = [
+    "EVConfig",
+    "HeatPumpConfig",
+    "ScenarioResult",
+    "DiversityError",
+    "check_peak_diversity",
+    "simulate_ev_load",
+    "simulate_heat_pump_load",
+    "apply_scenario",
+    "HOURS_PER_PERIOD",
+    "PERIODS_PER_DAY",
+]
 
 
 # ===========================================================================
@@ -77,6 +96,68 @@ class HeatPumpConfig:
         return cls(**payload)
 
 
+class DiversityError(AssertionError):
+    """The combined EV + heat-pump peak was not below the sum of its parts.
+
+    Physical loads rarely add exactly: EV charging and heat pumps peak at
+    overlapping but different times, and households differ from each other.
+    A combined peak that reaches the sum of the single-technology peaks means
+    the simulation has lost that diversity (for example by aggregating
+    twice), or that something genuinely surprising is happening. Either way
+    the scenario should stop rather than publish an overstated peak.
+    """
+
+
+def check_peak_diversity(
+    frame: pd.DataFrame,
+    summary: dict[str, Any],
+    *,
+    min_component_pp: float = 1.0,
+) -> None:
+    """Assert the combined peak is strictly below the sum of the individual peaks.
+
+    Only applies when EV and heat pumps are both present.
+
+    **Enforced** (raises :class:`DiversityError`): per neighbourhood, the peak
+    of the added EV + heat-pump load is strictly below the EV peak plus the
+    heat-pump peak. Equality means the two loads peaked in lock-step at the
+    same half-hour -- the signature of aggregating twice.
+
+    **Reported** (logged as a warning): the combined peak *amplification* is
+    expected to sit below the sum of the single-technology amplifications.
+    That is usual but not a physical law, because amplification is measured
+    against the base-demand peak, which can occur at a different time from
+    the EV or heat-pump peak; a short or unusual window can legitimately
+    super-add.
+    """
+    if not (summary.get("ev_adoption", 0) > 0 and summary.get("hp_adoption", 0) > 0):
+        return
+
+    for nid, sub in frame.groupby("neighbourhood_id", observed=True):
+        ev_peak, hp_peak = float(sub["ev_kwh"].max()), float(sub["heat_pump_kwh"].max())
+        if ev_peak <= 0 or hp_peak <= 0:
+            continue
+        added = sub["electrified_kwh"] - sub["base_kwh"]
+        if not float(added.max()) < ev_peak + hp_peak:
+            raise DiversityError(
+                f"{nid}: combined EV + heat-pump peak {float(added.max()):.3f} kWh is not below "
+                f"EV {ev_peak:.3f} + heat pump {hp_peak:.3f} kWh"
+            )
+
+    ev_amp = float(summary["ev_only_peak_amplification_pct"])
+    hp_amp = float(summary["heat_pump_only_peak_amplification_pct"])
+    if ev_amp >= min_component_pp and hp_amp >= min_component_pp:
+        combined = float(summary["peak_amplification_pct"])
+        if not combined < ev_amp + hp_amp:
+            log.warning(
+                "combined peak amplification +%.1f%% is not below EV +%.1f%% plus heat pump +%.1f%%; "
+                "the base peak falls at a different time from the technology peaks in this window",
+                combined,
+                ev_amp,
+                hp_amp,
+            )
+
+
 @dataclass
 class ScenarioResult:
     frame: pd.DataFrame
@@ -106,78 +187,22 @@ def simulate_ev_load(
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Aggregate EV charging demand (kWh per half hour) on ``timestamps``.
 
-    ``timestamps`` must be a regular 30-minute index. Returns the Monte-Carlo
-    mean profile, optionally with the 10th/90th percentile band.
+    Simulated per household (:func:`drg.simulation.household.ev_household_profiles`)
+    and summed once. ``timestamps`` must be a regular 30-minute index. Returns
+    the Monte-Carlo mean profile, optionally with the 10th/90th percentile band.
     """
-    cfg = config or EVConfig()
-    timestamps = pd.DatetimeIndex(timestamps)
-    n_ev = int(round(n_households * float(adoption)))
-    if n_ev <= 0 or len(timestamps) == 0:
-        zeros = np.zeros(len(timestamps))
-        return (zeros, zeros, zeros) if return_band else zeros
-
-    # absolute half-hour index of every timestamp relative to the first day
-    day0 = timestamps[0].normalize()
-    abs_period = ((timestamps - day0).total_seconds().to_numpy() // (60 * 30)).astype(np.int64)
-    n_slots = int(abs_period.max()) + PERIODS_PER_DAY + 1
-
-    unique_days = pd.DatetimeIndex(sorted(set(timestamps.normalize())))
-    day_offset = ((unique_days - day0).days.to_numpy() * PERIODS_PER_DAY).astype(np.int64)
-    is_weekend = unique_days.dayofweek.to_numpy() >= 5
-    p_charge = np.where(is_weekend, cfg.weekend_charge_probability, cfg.weekday_charge_probability)
-
-    energy_full_period = cfg.charger_kw * HOURS_PER_PERIOD  # kWh in a fully-charging half hour
-    max_span = int(np.ceil(cfg.max_duration_h * 2)) + 2
-
-    profiles = np.zeros((runs, n_slots), dtype=float)
-    for run in range(runs):
-        rng = np.random.default_rng(seed + 1009 * run)
-        n_days = len(unique_days)
-
-        charging = rng.random((n_days, n_ev)) < p_charge[:, None]
-        day_idx, _ = np.nonzero(charging)
-        n_sessions = day_idx.size
-        if n_sessions == 0:
-            continue
-
-        start = rng.uniform(
-            cfg.window_start_hour * 2, cfg.window_end_hour * 2, n_sessions
-        )  # fractional periods after midnight
-        duration = rng.uniform(cfg.min_duration_h * 2, cfg.max_duration_h * 2, n_sessions)
-        end = start + duration
-        base = day_offset[day_idx] + np.floor(start).astype(np.int64)
-
-        acc = profiles[run]
-        for k in range(max_span):
-            slot = base + k
-            lo = np.floor(start) + k
-            overlap = np.clip(np.minimum(end, lo + 1) - np.maximum(start, lo), 0.0, 1.0)
-            contrib = overlap * energy_full_period
-            valid = (contrib > 0) & (slot >= 0) & (slot < n_slots)
-            if valid.any():
-                np.add.at(acc, slot[valid], contrib[valid])
-
-    profiles *= cfg.diversity_factor
-    aligned = profiles[:, abs_period]
-    mean = aligned.mean(axis=0)
+    load = simulate_neighbourhood_load(
+        timestamps, n_households, adoption, 0.0, None, config, None, ev_seed=seed, hp_seed=seed, runs=runs
+    )
     if return_band:
-        return mean, np.percentile(aligned, 10, axis=0), np.percentile(aligned, 90, axis=0)
-    return mean
+        lo, hi = load.band("ev")
+        return load.ev_kwh, lo, hi
+    return load.ev_kwh
 
 
 # ===========================================================================
 # heat pumps
 # ===========================================================================
-def _heat_pump_shape(period_of_day: np.ndarray, cfg: HeatPumpConfig) -> np.ndarray:
-    """Occupancy-driven shaping factor with morning and evening peaks."""
-    m_start, m_end, e_start, e_end = cfg.evening_peak_hours
-    hours = period_of_day / 2.0
-    morning = np.exp(-0.5 * ((hours - (m_start + m_end) / 2) / 1.6) ** 2)
-    evening = np.exp(-0.5 * ((hours - (e_start + e_end) / 2) / 2.6) ** 2)
-    setback = 0.35  # overnight / away frost protection
-    return setback + 0.75 * morning + 1.0 * evening
-
-
 def simulate_heat_pump_load(
     timestamps: pd.DatetimeIndex,
     n_households: int,
@@ -189,48 +214,28 @@ def simulate_heat_pump_load(
     runs: int = 1,
     return_band: bool = False,
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Aggregate heat-pump electrical demand (kWh per half hour)."""
-    cfg = config or HeatPumpConfig()
-    timestamps = pd.DatetimeIndex(timestamps)
-    n_hp = int(round(n_households * float(adoption)))
-    if n_hp <= 0 or len(timestamps) == 0:
-        zeros = np.zeros(len(timestamps))
-        return (zeros, zeros, zeros) if return_band else zeros
+    """Aggregate heat-pump electrical demand (kWh per half hour).
 
-    period_of_day = (timestamps.hour * 2 + timestamps.minute // 30).to_numpy()
-    shape = _heat_pump_shape(period_of_day, cfg)
-
-    if temperature_c is not None:
-        temp = (
-            pd.Series(np.asarray(temperature_c, dtype=float)).interpolate(limit_direction="both").to_numpy()
-        )
-        hdd = np.clip(cfg.base_temperature_c - temp, 0.0, None)
-    else:  # winter-seasonal proxy when no temperature is available
-        doy = timestamps.dayofyear.to_numpy(dtype=float)
-        hdd = np.clip(6.5 + 6.0 * np.cos(2 * np.pi * (doy - 20) / 365.25), 0.0, None)
-
-    profiles = np.zeros((runs, len(timestamps)), dtype=float)
-    for run in range(runs):
-        rng = np.random.default_rng(seed + 3607 * run)
-        # per-household thermal efficiency / setpoint spread
-        spread = np.clip(rng.normal(1.0, 0.18, n_hp), 0.4, 1.8)
-        # thermostat cycling noise, common-mode across the fleet
-        cycling = np.clip(rng.normal(1.0, 0.08, len(timestamps)), 0.6, 1.4)
-
-        # cycling is applied *inside* the clip: a unit can modulate below its
-        # rating but never draw more than its rated electrical input
-        per_hh_kw = np.clip(
-            cfg.kw_per_degree * hdd[:, None] * shape[:, None] * spread[None, :] * cycling[:, None],
-            0.0,
-            cfg.rated_kw,
-        )
-        profiles[run] = per_hh_kw.sum(axis=1) * HOURS_PER_PERIOD
-
-    profiles *= cfg.diversity_factor
-    mean = profiles.mean(axis=0)
+    Simulated per household with household-specific timing
+    (:func:`drg.simulation.household.heat_pump_household_profiles`) and
+    summed once.
+    """
+    load = simulate_neighbourhood_load(
+        timestamps,
+        n_households,
+        0.0,
+        adoption,
+        temperature_c,
+        None,
+        config,
+        ev_seed=seed,
+        hp_seed=seed,
+        runs=runs,
+    )
     if return_band:
-        return mean, np.percentile(profiles, 10, axis=0), np.percentile(profiles, 90, axis=0)
-    return mean
+        lo, hi = load.band("heat_pump")
+        return load.heat_pump_kwh, lo, hi
+    return load.heat_pump_kwh
 
 
 # ===========================================================================
@@ -247,6 +252,7 @@ def apply_scenario(
     seed: int = 42,
     runs: int = 1,
     households_col: str = "n_households",
+    check_diversity: bool = True,
 ) -> ScenarioResult:
     """Add simulated EV + heat-pump load to a base demand frame.
 
@@ -254,34 +260,62 @@ def apply_scenario(
     ``value_col`` and ``households_col``; ``temperature_c`` is used when
     present. The returned frame adds ``ev_kwh``, ``heat_pump_kwh`` and
     ``electrified_kwh``.
+
+    Electrification load is superimposed per household and aggregated once
+    (:func:`drg.simulation.household.simulate_neighbourhood_load`), so
+    ``electrified_kwh`` keeps the timing diversity between households.
+    ``ev_kwh`` and ``heat_pump_kwh`` attribute the same draws to each
+    technology, which also gives the EV-only and heat-pump-only peaks of this
+    very scenario for the diversity comparison in the summary.
+
+    With ``check_diversity`` (the default) the scenario raises
+    :class:`DiversityError` if the combined peak is not strictly below the
+    sum of the single-technology peaks.
     """
     frames: list[pd.DataFrame] = []
+    household_peak = 0.0
     for nid, sub in df.groupby("neighbourhood_id", observed=True, sort=True):
         sub = sub.sort_values("timestamp").copy()
         ts = pd.DatetimeIndex(sub["timestamp"])
         households = int(sub[households_col].iloc[0]) if households_col in sub else 100
 
-        ev = simulate_ev_load(
-            ts, households, ev_adoption, ev_config, seed=seed + _site_seed(nid, 997), runs=runs
-        )
-        hp = simulate_heat_pump_load(
+        load = simulate_neighbourhood_load(
             ts,
             households,
+            ev_adoption,
             hp_adoption,
             sub.get("temperature_c"),
+            ev_config,
             hp_config,
-            seed=seed + _site_seed(nid, 991),
+            ev_seed=seed + _site_seed(nid, 997),
+            hp_seed=seed + _site_seed(nid, 991),
             runs=runs,
         )
         sub["base_kwh"] = sub[value_col].astype(float)
-        sub["ev_kwh"] = ev
-        sub["heat_pump_kwh"] = hp
-        sub["electrified_kwh"] = sub["base_kwh"] + sub["ev_kwh"] + sub["heat_pump_kwh"]
+        sub["ev_kwh"] = load.ev_kwh
+        sub["heat_pump_kwh"] = load.heat_pump_kwh
+        # the total is the once-aggregated household superposition, not ev + hp
+        sub["electrified_kwh"] = sub["base_kwh"] + load.total_kwh
+        household_peak = max(household_peak, load.household_peak_kwh)
         frames.append(sub)
 
     out = pd.concat(frames, ignore_index=True)
-    base_peak = float(out.groupby("neighbourhood_id")["base_kwh"].max().mean())
-    new_peak = float(out.groupby("neighbourhood_id")["electrified_kwh"].max().mean())
+    by_site = out.groupby("neighbourhood_id", observed=True)
+    base_peak = float(by_site["base_kwh"].max().mean())
+    new_peak = float(by_site["electrified_kwh"].max().mean())
+
+    def _amplification(peak: float) -> float:
+        return float(100.0 * (peak / base_peak - 1.0)) if base_peak else 0.0
+
+    # single-technology peaks of the same draws, for the diversity comparison
+    ev_only_peak = float((out["base_kwh"] + out["ev_kwh"]).groupby(out["neighbourhood_id"]).max().mean())
+    hp_only_peak = float(
+        (out["base_kwh"] + out["heat_pump_kwh"]).groupby(out["neighbourhood_id"]).max().mean()
+    )
+    ev_only_amp = _amplification(ev_only_peak)
+    hp_only_amp = _amplification(hp_only_peak)
+    combined_amp = _amplification(new_peak)
+    additive_amp = ev_only_amp + hp_only_amp
 
     # After-diversity maximum demand per adopting household -- the quantity UK
     # DNOs use for reinforcement planning, exposed so the simulation can be
@@ -316,7 +350,14 @@ def apply_scenario(
         "electrified_mean_kwh": float(out["electrified_kwh"].mean()),
         "base_peak_kwh": base_peak,
         "electrified_peak_kwh": new_peak,
-        "peak_amplification_pct": float(100.0 * (new_peak / base_peak - 1.0)) if base_peak else 0.0,
+        "peak_amplification_pct": combined_amp,
+        "ev_only_peak_amplification_pct": ev_only_amp,
+        "heat_pump_only_peak_amplification_pct": hp_only_amp,
+        "additive_peak_amplification_pct": additive_amp,
+        # percentage points by which the combined peak sits below the sum of
+        # the single-technology peaks: the household timing diversity
+        "diversity_gain_pp": additive_amp - combined_amp,
+        "household_peak_kwh": household_peak,
         "energy_growth_pct": float(100.0 * (out["electrified_kwh"].sum() / out["base_kwh"].sum() - 1.0)),
         "ev_energy_kwh": float(out["ev_kwh"].sum()),
         "heat_pump_energy_kwh": float(out["heat_pump_kwh"].sum()),
@@ -336,10 +377,14 @@ def apply_scenario(
         "monte_carlo_runs": int(runs),
     }
     log.info(
-        "scenario EV=%.0f%% HP=%.0f%% -> peak +%.1f%%, energy +%.1f%%",
+        "scenario EV=%.0f%% HP=%.0f%% -> peak +%.1f%% (additive +%.1f%%, diversity %.1f pp), energy +%.1f%%",
         ev_adoption * 100,
         hp_adoption * 100,
         summary["peak_amplification_pct"],
+        summary["additive_peak_amplification_pct"],
+        summary["diversity_gain_pp"],
         summary["energy_growth_pct"],
     )
+    if check_diversity:
+        check_peak_diversity(out, summary)
     return ScenarioResult(frame=out, summary=summary)

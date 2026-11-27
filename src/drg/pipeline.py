@@ -219,6 +219,7 @@ def stage_scenarios(
         seed=cfg.seed,
         runs=1,
         keep_frames=keep_frames,
+        check_diversity=bool(ecfg.get("check_diversity", True)),
     )
     write_table(grid, cfg.paths.sensitivity_output)
 
@@ -248,6 +249,7 @@ def stage_scenarios(
         hp_config=hp_cfg,
         seed=cfg.seed,
         runs=runs,
+        check_diversity=bool(ecfg.get("check_diversity", True)),
     )
     write_table(mc.frame, cfg.paths.scenario_output)
     headline["monte_carlo_scenario"] = mc.summary
