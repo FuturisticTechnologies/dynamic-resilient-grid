@@ -10,7 +10,9 @@ tick the engine:
    statistical stress thresholds and raises an alert, including a
    *pre-emptive* alert when the forecast breaches the threshold before the
    measurement does;
-4. optionally attaches the live weather / carbon-intensity context.
+4. optionally explains the forecast -- the few features that move it most
+   (``explain=True``, see :mod:`drg.explain.local`);
+5. optionally attaches the live weather / carbon-intensity context.
 
 The engine is deliberately synchronous and pull-based so that the same code
 drives the CLI demo, the Streamlit dashboard and the FastAPI service.
@@ -28,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from drg.config import Config
+from drg.explain.local import local_contributions
 from drg.features.engineering import (
     add_calendar_features,
     add_exogenous_features,
@@ -55,6 +58,7 @@ class ReplayTick:
     headroom_pct: float
     window: pd.DataFrame = field(repr=False, default_factory=pd.DataFrame)
     context: dict[str, Any] = field(default_factory=dict)
+    drivers: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d = {k: v for k, v in self.__dict__.items() if k != "window"}
@@ -90,8 +94,12 @@ class StreamingReplayEngine:
         neighbourhood_id: str | None = None,
         start_index: int | None = None,
         carbon: pd.DataFrame | None = None,
+        explain: bool = False,
+        explain_top_n: int = 5,
     ) -> None:
         self.cfg = cfg
+        self.explain = bool(explain)
+        self.explain_top_n = int(explain_top_n)
         self.bundle = bundle
         self.thresholds = thresholds
         self.window_periods = int(cfg.streaming.get("window_periods", 336))
@@ -142,7 +150,10 @@ class StreamingReplayEngine:
         row = self.series.iloc[idx]
         actual = float(row["demand_kwh"])
 
-        forecast, forecast_ts = self.forecast_next(window)
+        forecast, forecast_ts, design = self._forecast(window)
+        drivers: list[dict[str, Any]] = []
+        if self.explain and design is not None:
+            drivers = local_contributions(self.bundle, design, self.explain_top_n).to_dict(orient="records")
 
         th = self.thresholds.get(self.neighbourhood_id)
         threshold = float(th.primary_kwh) if th else float("nan")
@@ -162,6 +173,7 @@ class StreamingReplayEngine:
             headroom_pct=float(100.0 * (1.0 - ratio)) if np.isfinite(ratio) else float("nan"),
             window=window,
             context=self._context,
+            drivers=drivers,
         )
         self.cursor += 1
         return tick
@@ -181,17 +193,24 @@ class StreamingReplayEngine:
         delay = (1800.0 / speed) if realtime else 0.0
         rows = [t.to_dict() for t in self.stream(n=n, delay_s=delay)]
         frame = pd.DataFrame(rows)
-        if "context" in frame.columns:
-            # dict columns are not parquet-writable; keep them as JSON text
-            if frame["context"].map(bool).any():
-                frame["context"] = frame["context"].map(json.dumps)
+        for col in ("context", "drivers"):
+            if col not in frame.columns:
+                continue
+            # dict / list columns are not parquet-writable; keep them as JSON text
+            if frame[col].map(bool).any():
+                frame[col] = frame[col].map(lambda v: json.dumps(v, default=str))
             else:
-                frame = frame.drop(columns="context")
+                frame = frame.drop(columns=col)
         return frame
 
     # ------------------------------------------------------------ internals
     def forecast_next(self, window: pd.DataFrame) -> tuple[float, pd.Timestamp]:
         """One-step-ahead forecast built from the current rolling window."""
+        forecast, next_ts, _ = self._forecast(window)
+        return forecast, next_ts
+
+    def _forecast(self, window: pd.DataFrame) -> tuple[float, pd.Timestamp, pd.DataFrame | None]:
+        """Forecast plus the single-row design matrix it was made from."""
         next_ts = pd.Timestamp(window["timestamp"].iloc[-1]) + pd.Timedelta(minutes=30)
         future = window.iloc[[-1]].copy()
         future["timestamp"] = next_ts
@@ -217,8 +236,8 @@ class StreamingReplayEngine:
             pred = float(np.ravel(self.bundle.predict(design))[0])
         except Exception as exc:  # pragma: no cover - defensive
             log.warning("forecast failed at %s (%s); falling back to persistence", next_ts, exc)
-            pred = float(window["demand_kwh"].iloc[-1])
-        return max(pred, 0.0), next_ts
+            return max(float(window["demand_kwh"].iloc[-1]), 0.0), next_ts, None
+        return max(pred, 0.0), next_ts, design
 
 
 def replay_to_frame(engine: StreamingReplayEngine, n: int = 336) -> pd.DataFrame:
