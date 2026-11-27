@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from drg.config import Config
+from drg.features.dataset import SPLIT_COL, split_frames
 from drg.features.engineering import chronological_split, feature_columns
 from drg.models.baseline import BaselineForecaster, SeasonalNaiveForecaster
 from drg.models.evaluate import evaluate_forecast, metrics_table
@@ -63,11 +64,19 @@ def train_models(
     feat_cols = feature_columns(features)
     log.info("training on %s features: %s ...", len(feat_cols), ", ".join(feat_cols[:8]))
 
-    train, val, test = chronological_split(
-        features,
-        test_days=int(mcfg.get("test_size_days", 60)),
-        val_days=int(mcfg.get("val_size_days", 30)),
-    )
+    # The split travels with the model-ready dataset (DRG-51): every model is
+    # fitted, early-stopped and scored on exactly the rows labelled for it.
+    if SPLIT_COL in features.columns:
+        train, val, test = split_frames(features)
+        split_source = "dataset"
+    else:
+        log.warning("features carry no '%s' label; deriving a chronological split", SPLIT_COL)
+        train, val, test = chronological_split(
+            features,
+            test_days=int(mcfg.get("test_size_days", 60)),
+            val_days=int(mcfg.get("val_size_days", 30)),
+        )
+        split_source = "derived"
     if val.empty:
         val = train.tail(max(1, len(train) // 10))
 
@@ -259,6 +268,7 @@ def train_models(
                     "stress_threshold_kwh": stress_threshold,
                     "n_features": len(feat_cols),
                     "features": feat_cols,
+                    "split_source": split_source,
                     "train_window": [str(train["timestamp"].min()), str(train["timestamp"].max())],
                     "test_window": [str(test["timestamp"].min()), str(test["timestamp"].max())],
                 },

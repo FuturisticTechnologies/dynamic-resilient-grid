@@ -227,7 +227,7 @@ python -m drg.cli --help
 
   ingest        Load smart-meter data and the weather / carbon context series
   eda           Load curves, seasonality, peak patterns  -> artifacts/figures
-  features      Build the engineered feature table
+  features      Materialise the model-ready dataset (per-site, split-labelled, cached by config hash)
   train         Train and evaluate the forecasting model ladder
   stress        Detect statistical stress periods and summarise them
   scenarios     Run the EV / heat-pump adoption grid and sensitivity analysis
