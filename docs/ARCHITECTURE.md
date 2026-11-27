@@ -119,20 +119,31 @@ The interesting numbers are how that 5 % moves under electrification, and *when*
 
 ### Electric vehicles
 
-Each adopting household owns a charger of `charger_kw` (7 kW default). Per day it plugs in with a
-weekday/weekend probability, starting at a uniformly random time in the 17:00–22:00 window, for a
-uniformly random 2–4 hour session that is allowed to run past the window into the night — which is
-what uncontrolled domestic charging does.
+Each adopting household owns a charger of `charger_kw` (7 kW default) and is simulated on its own
+(`simulate_ev_households` returns a half-hours × EVs matrix; `simulate_ev_load` sums it). Sessions
+come from distributions, not a fixed schedule (`draw_ev_sessions`, DRG-74):
 
-Partial half-hour overlap is computed analytically, so a session starting at 18:12 contributes the
-correct fraction to the 18:00 period. The whole fleet is vectorised: sessions are drawn as one
-array and deposited with `np.add.at` over the at most ten periods a session can touch.
+- **plug-in**: a weekday / weekend probability per car per day;
+- **arrival**: a truncated normal around 18:30 on weekdays and 17:30 at weekends, bounded by the
+  15:00–23:30 charging window;
+- **energy**: lognormal around the mean session energy implied by mileage (`annual_miles` /
+  `miles_per_kwh`, spread over the plug-in days), capped at `battery_kwh`;
+- **duration** = energy ÷ `charger_kw`. Sessions may run past the window into the night, which is
+  what uncontrolled domestic charging does.
 
-**Calibration.** A 2–4 h session at 7 kW delivers 14–28 kWh — a near-full charge. Charging *every*
-day would imply ~7,600 kWh/year per car. UK average car mileage (~7,400 miles at ~3.5 miles/kWh)
-implies ~2,100 kWh/year, so the default plug-in probability is ~1 day in 3. This single parameter
-is the difference between a plausible study and an alarmist one; it is documented in the config and
-the resulting kWh/car/day is reported in every scenario summary.
+Because duration comes from energy, **charger power changes the shape, not the energy**: a 22 kW
+charger delivers the same daily kWh as a 7 kW one in shorter, sharper sessions, so the coincident
+peak and the ADMD rise. Partial half-hour overlap is computed analytically, so a session starting
+at 18:12 contributes the correct fraction to the 18:00 period, and the fleet is vectorised with
+`np.add.at`.
+
+**Calibration and reporting.** 6,800 miles/year at 3.5 miles/kWh is ~1,940 kWh/year, about 5.3 kWh
+per car per day, or ~18 kWh per session at roughly one plug-in in three days (~2.6 h at 7 kW).
+Every scenario summary reports, via `ev_planning_metrics`, the charger power, the
+after-diversity maximum demand per EV (each neighbourhood's peak half-hourly EV load ÷ its EVs),
+kWh per car per day and per year, the implied annual mileage, and its ratio to `annual_miles`.
+The scenario studio shows these next to the charger-rating slider, so the assumption a planner
+checks first is on screen.
 
 ### Heat pumps
 
