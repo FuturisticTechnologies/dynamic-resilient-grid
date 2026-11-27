@@ -324,6 +324,23 @@ electrification:
 neighbourhood boundary; splits are chronological (train → validation → test by wall-clock time);
 rolling-origin cross-validation always trains on the past. Tests assert each of these.
 
+**Train, validation and test windows.** The windows are fixed once, in `configs/config.yaml`
+(`models.train_start`, `models.val_size_days`, `models.test_size_days`, `models.min_train_days`),
+and the training harness applies the same windows to every model:
+
+| Window | Span | Used for |
+|---|---|---|
+| train | first usable half-hour (after the lag warm-up) → validation | fitting |
+| validation | `val_size_days` (30) before the test window | early stopping and champion selection |
+| test | final `test_size_days` (60) = 2,880 half-hours per site | final reporting only |
+
+Windows are half-open, so no half-hour falls in two of them. If the series is too short or a
+window comes out empty, training stops with an error instead of borrowing rows from the
+neighbouring window. The champion is chosen on validation RMSE; test metrics are reported but play
+no part in fitting or selection. The resolved dates are written to `artifacts/reports/split_windows.json`,
+to `model_metrics.json` and to each model bundle, and later stages (SHAP explanations) read them back
+instead of working out their own cutoff.
+
 **Stress is statistical, not physical.** No transformer ratings are published with the Low Carbon
 London data, so stress is the 95th percentile of each site's own history (with mean + 2σ as a
 sensitivity check). Thresholds are estimated on the baseline window and then **held fixed**, so a

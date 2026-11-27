@@ -81,8 +81,11 @@ site boundary.
 The ladder exists so that the headline number means something: a 3.4 % MAPE is only impressive
 against the 7.7 % that a seasonal-naive rule achieves on the same window.
 
-- **Splitting** is chronological — train, then a validation window for early stopping, then a
-  held-out test window (60 days by default).
+- **Splitting** is chronological and defined once in config (`drg.models.windows.SplitWindows`):
+  train from the start of the usable series, a validation window for early stopping and champion
+  selection, then a held-out 60-day test window used only for final reporting. Every model
+  in the harness uses the same windows, and the resolved dates are saved to
+  `reports/split_windows.json` for later stages to reuse.
 - **Rolling-origin cross-validation** (`TimeSeriesSplit`) re-fits the champion on five expanding
   windows to show the test result is stable.
 - **Metrics** go beyond accuracy: MAE, RMSE, MAPE, sMAPE, R², bias, P95 absolute error, and then
