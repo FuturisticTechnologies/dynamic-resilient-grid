@@ -18,9 +18,13 @@ evening occupancy peaks, and is capped at the unit rated input. When the
 temperature series is unavailable the model degrades to a winter-seasonal
 proxy.
 
-Aggregate profiles apply a technology-specific *diversity factor*, and the
-whole simulation is repeated ``monte_carlo_runs`` times so the reported
-scenario carries a mean and an uncertainty band rather than a single draw.
+EV and heat-pump load is superimposed per household at half-hourly
+resolution and aggregated to the neighbourhood exactly once, at the end
+(:mod:`drg.simulation.household`, DRG-80); aggregating each technology first
+destroys the time offsets between households and makes the combined peak
+additive. ``check_peak_diversity`` guards that physical fact. The whole
+simulation is repeated ``monte_carlo_runs`` times so the reported scenario
+carries a mean and an uncertainty band rather than a single draw.
 """
 
 from __future__ import annotations

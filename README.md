@@ -332,8 +332,14 @@ scenario that raises demand raises measured stress instead of moving the goalpos
 **Electrification is bottom-up.** Each adopting household is simulated individually — EV plug-in
 day, start time inside the evening window, session length, with partial half-hour overlap accounted
 for analytically; heat-pump electrical input driven by heating degrees, shaped by occupancy and
-capped at the unit rating. Diversity factors are applied to the aggregate, and the whole simulation
-repeats `monte_carlo_runs` times.
+capped at the unit rating, with a household-specific schedule offset and independent thermostat
+cycling. EV and heat-pump load is **superimposed per household at half-hourly resolution and
+aggregated to the neighbourhood once, at the end**, so the time offsets between households survive
+into the combined peak. Every scenario reports the EV-only and heat-pump-only peaks of the same
+draws and the `diversity_gain_pp` between their sum and the combined peak, and a scenario stops with
+`DiversityError` if the combined EV + heat-pump peak is not strictly below the sum of the two
+individual peaks (`electrification.check_diversity`). The whole simulation repeats
+`monte_carlo_runs` times.
 
 **Train/serve parity.** The streaming engine and the API rebuild features with the same functions
 used offline, and reuse the same cached carbon-intensity series, so the online design matrix
