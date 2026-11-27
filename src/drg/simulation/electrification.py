@@ -45,6 +45,8 @@ __all__ = [
     "EVConfig",
     "HeatPumpConfig",
     "ScenarioResult",
+    "DiversityError",
+    "check_peak_diversity",
     "simulate_ev_load",
     "simulate_heat_pump_load",
     "apply_scenario",
@@ -88,6 +90,59 @@ class HeatPumpConfig:
         if "evening_peak_hours" in payload:
             payload["evening_peak_hours"] = tuple(payload["evening_peak_hours"])
         return cls(**payload)
+
+
+class DiversityError(AssertionError):
+    """The combined EV + heat-pump peak was not below the sum of its parts.
+
+    Physical loads rarely add exactly: EV charging and heat pumps peak at
+    overlapping but different times, and households differ from each other.
+    A combined peak that reaches the sum of the single-technology peaks means
+    the simulation has lost that diversity (for example by aggregating
+    twice), or that something genuinely surprising is happening. Either way
+    the scenario should stop rather than publish an overstated peak.
+    """
+
+
+def check_peak_diversity(
+    frame: pd.DataFrame,
+    summary: dict[str, Any],
+    *,
+    min_component_pp: float = 1.0,
+) -> None:
+    """Assert the combined peak is strictly below the sum of the individual peaks.
+
+    Two checks, both only when EV and heat pumps are both present:
+
+    * per neighbourhood, the peak of the added EV + heat-pump load is strictly
+      below the EV peak plus the heat-pump peak;
+    * when each technology on its own raises the neighbourhood peak by at
+      least ``min_component_pp`` percentage points, the combined peak
+      amplification is strictly below the sum of the two.
+    """
+    if not (summary.get("ev_adoption", 0) > 0 and summary.get("hp_adoption", 0) > 0):
+        return
+
+    for nid, sub in frame.groupby("neighbourhood_id", observed=True):
+        ev_peak, hp_peak = float(sub["ev_kwh"].max()), float(sub["heat_pump_kwh"].max())
+        if ev_peak <= 0 or hp_peak <= 0:
+            continue
+        added = sub["electrified_kwh"] - sub["base_kwh"]
+        if not float(added.max()) < ev_peak + hp_peak:
+            raise DiversityError(
+                f"{nid}: combined EV + heat-pump peak {float(added.max()):.3f} kWh is not below "
+                f"EV {ev_peak:.3f} + heat pump {hp_peak:.3f} kWh"
+            )
+
+    ev_amp = float(summary["ev_only_peak_amplification_pct"])
+    hp_amp = float(summary["heat_pump_only_peak_amplification_pct"])
+    if ev_amp >= min_component_pp and hp_amp >= min_component_pp:
+        combined = float(summary["peak_amplification_pct"])
+        if not combined < ev_amp + hp_amp:
+            raise DiversityError(
+                f"combined peak amplification +{combined:.1f}% is not below EV +{ev_amp:.1f}% "
+                f"plus heat pump +{hp_amp:.1f}% (additive +{ev_amp + hp_amp:.1f}%)"
+            )
 
 
 @dataclass
@@ -184,6 +239,7 @@ def apply_scenario(
     seed: int = 42,
     runs: int = 1,
     households_col: str = "n_households",
+    check_diversity: bool = True,
 ) -> ScenarioResult:
     """Add simulated EV + heat-pump load to a base demand frame.
 
@@ -198,6 +254,10 @@ def apply_scenario(
     ``ev_kwh`` and ``heat_pump_kwh`` attribute the same draws to each
     technology, which also gives the EV-only and heat-pump-only peaks of this
     very scenario for the diversity comparison in the summary.
+
+    With ``check_diversity`` (the default) the scenario raises
+    :class:`DiversityError` if the combined peak is not strictly below the
+    sum of the single-technology peaks.
     """
     frames: list[pd.DataFrame] = []
     household_peak = 0.0
@@ -312,4 +372,6 @@ def apply_scenario(
         summary["diversity_gain_pp"],
         summary["energy_growth_pct"],
     )
+    if check_diversity:
+        check_peak_diversity(out, summary)
     return ScenarioResult(frame=out, summary=summary)
