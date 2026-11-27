@@ -191,34 +191,58 @@ def apply_scenario(
     ``value_col`` and ``households_col``; ``temperature_c`` is used when
     present. The returned frame adds ``ev_kwh``, ``heat_pump_kwh`` and
     ``electrified_kwh``.
+
+    Electrification load is superimposed per household and aggregated once
+    (:func:`drg.simulation.household.simulate_neighbourhood_load`), so
+    ``electrified_kwh`` keeps the timing diversity between households.
+    ``ev_kwh`` and ``heat_pump_kwh`` attribute the same draws to each
+    technology, which also gives the EV-only and heat-pump-only peaks of this
+    very scenario for the diversity comparison in the summary.
     """
     frames: list[pd.DataFrame] = []
+    household_peak = 0.0
     for nid, sub in df.groupby("neighbourhood_id", observed=True, sort=True):
         sub = sub.sort_values("timestamp").copy()
         ts = pd.DatetimeIndex(sub["timestamp"])
         households = int(sub[households_col].iloc[0]) if households_col in sub else 100
 
-        ev = simulate_ev_load(
-            ts, households, ev_adoption, ev_config, seed=seed + _site_seed(nid, 997), runs=runs
-        )
-        hp = simulate_heat_pump_load(
+        load = simulate_neighbourhood_load(
             ts,
             households,
+            ev_adoption,
             hp_adoption,
             sub.get("temperature_c"),
+            ev_config,
             hp_config,
-            seed=seed + _site_seed(nid, 991),
+            ev_seed=seed + _site_seed(nid, 997),
+            hp_seed=seed + _site_seed(nid, 991),
             runs=runs,
         )
         sub["base_kwh"] = sub[value_col].astype(float)
-        sub["ev_kwh"] = ev
-        sub["heat_pump_kwh"] = hp
-        sub["electrified_kwh"] = sub["base_kwh"] + sub["ev_kwh"] + sub["heat_pump_kwh"]
+        sub["ev_kwh"] = load.ev_kwh
+        sub["heat_pump_kwh"] = load.heat_pump_kwh
+        # the total is the once-aggregated household superposition, not ev + hp
+        sub["electrified_kwh"] = sub["base_kwh"] + load.total_kwh
+        household_peak = max(household_peak, load.household_peak_kwh)
         frames.append(sub)
 
     out = pd.concat(frames, ignore_index=True)
-    base_peak = float(out.groupby("neighbourhood_id")["base_kwh"].max().mean())
-    new_peak = float(out.groupby("neighbourhood_id")["electrified_kwh"].max().mean())
+    by_site = out.groupby("neighbourhood_id", observed=True)
+    base_peak = float(by_site["base_kwh"].max().mean())
+    new_peak = float(by_site["electrified_kwh"].max().mean())
+
+    def _amplification(peak: float) -> float:
+        return float(100.0 * (peak / base_peak - 1.0)) if base_peak else 0.0
+
+    # single-technology peaks of the same draws, for the diversity comparison
+    ev_only_peak = float((out["base_kwh"] + out["ev_kwh"]).groupby(out["neighbourhood_id"]).max().mean())
+    hp_only_peak = float(
+        (out["base_kwh"] + out["heat_pump_kwh"]).groupby(out["neighbourhood_id"]).max().mean()
+    )
+    ev_only_amp = _amplification(ev_only_peak)
+    hp_only_amp = _amplification(hp_only_peak)
+    combined_amp = _amplification(new_peak)
+    additive_amp = ev_only_amp + hp_only_amp
 
     # After-diversity maximum demand per adopting household -- the quantity UK
     # DNOs use for reinforcement planning, exposed so the simulation can be
@@ -253,7 +277,14 @@ def apply_scenario(
         "electrified_mean_kwh": float(out["electrified_kwh"].mean()),
         "base_peak_kwh": base_peak,
         "electrified_peak_kwh": new_peak,
-        "peak_amplification_pct": float(100.0 * (new_peak / base_peak - 1.0)) if base_peak else 0.0,
+        "peak_amplification_pct": combined_amp,
+        "ev_only_peak_amplification_pct": ev_only_amp,
+        "heat_pump_only_peak_amplification_pct": hp_only_amp,
+        "additive_peak_amplification_pct": additive_amp,
+        # percentage points by which the combined peak sits below the sum of
+        # the single-technology peaks: the household timing diversity
+        "diversity_gain_pp": additive_amp - combined_amp,
+        "household_peak_kwh": household_peak,
         "energy_growth_pct": float(100.0 * (out["electrified_kwh"].sum() / out["base_kwh"].sum() - 1.0)),
         "ev_energy_kwh": float(out["ev_kwh"].sum()),
         "heat_pump_energy_kwh": float(out["heat_pump_kwh"].sum()),
@@ -273,10 +304,12 @@ def apply_scenario(
         "monte_carlo_runs": int(runs),
     }
     log.info(
-        "scenario EV=%.0f%% HP=%.0f%% -> peak +%.1f%%, energy +%.1f%%",
+        "scenario EV=%.0f%% HP=%.0f%% -> peak +%.1f%% (additive +%.1f%%, diversity %.1f pp), energy +%.1f%%",
         ev_adoption * 100,
         hp_adoption * 100,
         summary["peak_amplification_pct"],
+        summary["additive_peak_amplification_pct"],
+        summary["diversity_gain_pp"],
         summary["energy_growth_pct"],
     )
     return ScenarioResult(frame=out, summary=summary)
