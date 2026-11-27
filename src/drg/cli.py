@@ -161,7 +161,13 @@ def scenarios(
         "Electrification sensitivity grid",
         max_rows=40,
     )
+    artefacts = headline.pop("report_artefacts", {})
     console.print_json(json.dumps(headline, default=str))
+    if artefacts:
+        console.print("[bold]Scenario reporting artefacts[/]")
+        for path in [*artefacts.get("figures", []), *artefacts.get("tables", [])]:
+            console.print(f"  {path}")
+        console.print(f"  summary -> {artefacts.get('summary')}")
 
 
 @app.command()

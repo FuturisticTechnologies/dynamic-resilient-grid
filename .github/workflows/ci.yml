@@ -95,6 +95,14 @@ jobs:
           test -f artifacts/reports/model_metrics.json
           test -f artifacts/reports/sensitivity_grid.parquet
           test -f artifacts/models/best_model.joblib
+          # DRG-84 scenario reporting artefacts
+          test -f artifacts/reports/scenario_report.md
+          test -f artifacts/reports/scenario_artefacts.json
+          test -f artifacts/reports/scenario_diversity_gap.csv
+          test -f artifacts/figures/scenario_peak_amplification.png
+          test -f artifacts/figures/scenario_diversity_gap.png
+          test -f artifacts/figures/scenario_stress_frequency_duration.png
+          test -f artifacts/figures/scenario_load_shape_overlay.png
           python -c "
           import json
           r = json.load(open('artifacts/reports/run_report.json'))
@@ -102,6 +110,7 @@ jobs:
           print('best RMSE', rmse)
           assert r['model']['champion']
           assert r['electrification']['worst_case_peak_amplification_pct'] > 0
+          assert r['scenario_artefacts']['figures'], 'scenario figures missing from the run report'
           "
 
       - uses: actions/upload-artifact@v4
