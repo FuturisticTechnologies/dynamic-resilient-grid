@@ -22,7 +22,7 @@ dependencies = [
   "shap>=0.44",
   "matplotlib>=3.8",
   "plotly>=5.18",
-  "streamlit>=1.32",
+  "streamlit>=1.37",  # st.fragment(run_every=...) drives the replay page
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
   "pydantic>=2.6",

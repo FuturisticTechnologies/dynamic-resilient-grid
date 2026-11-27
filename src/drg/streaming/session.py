@@ -143,12 +143,13 @@ class ReplaySession:
         frame["forecast_timestamp"] = pd.to_datetime(frame["forecast_timestamp"])
         return frame
 
-    def label(self) -> str:
+    def label(self, include_tag: bool = True) -> str:
         """Banner text: states plainly that this is a replay, not a live feed."""
         start, end = self.period
         clock = f"{self.clock:%a %d %b %Y %H:%M}" if self.clock is not None else "not started"
+        tag = f"{REPLAY_LABEL} - " if include_tag else ""
         return (
-            f"{REPLAY_LABEL} - not a live feed. Replaying {self.source} for "
+            f"{tag}Not a live feed. Replaying {self.source} for "
             f"{self.engine.neighbourhood_id} ({start:%d %b %Y} to {end:%d %b %Y}) at "
             f"{self.speed:,.0f}x speed. Replay clock: {clock}."
         )
