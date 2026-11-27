@@ -400,6 +400,20 @@ with tab_scenario:
         f"{result.summary['electrified_peak_kwh']:,.0f} kWh/hh",
         f"{result.summary['electrified_peak_kwh'] - result.summary['base_peak_kwh']:+,.0f}",
     )
+    if ev_adoption > 0:
+        e1, e2, e3, e4 = st.columns(4)
+        e1.metric(
+            "EV ADMD per car",
+            f"{result.summary['ev_admd_kw']:.2f} kW",
+            help=f"After-diversity maximum demand at a {result.summary['ev_charger_kw']:g} kW charger",
+        )
+        e2.metric("EV energy per car", f"{result.summary['ev_kwh_per_car_per_day']:.1f} kWh/day")
+        e3.metric("Implied mileage", f"{result.summary['ev_implied_miles_per_year']:,.0f} mi/yr")
+        e4.metric(
+            "Mileage check",
+            f"{result.summary['ev_mileage_check_ratio']:.2f}×",
+            help="Implied annual mileage over the configured annual_miles; ~1.0 is consistent",
+        )
 
     profile = (
         result.frame.assign(period=lambda d: d["timestamp"].dt.hour * 2 + d["timestamp"].dt.minute // 30)

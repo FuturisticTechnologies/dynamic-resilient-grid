@@ -264,6 +264,58 @@ def simulate_ev_load(
     return mean
 
 
+def ev_planning_metrics(
+    frame: pd.DataFrame,
+    n_ev_by_site: dict[str, int],
+    config: EVConfig | None = None,
+) -> dict[str, float]:
+    """EV figures a planner checks first, per scenario (DRG-74).
+
+    * ``ev_admd_kw`` -- after-diversity maximum demand per EV: each
+      neighbourhood's peak half-hourly EV load (as kW) divided by its number
+      of EVs, averaged over neighbourhoods. It depends on the charger power:
+      faster chargers shorten sessions and raise the coincident peak.
+    * ``ev_kwh_per_car_per_day`` / ``_per_year`` -- energy actually delivered
+      per car in the scenario window, and ``ev_implied_miles_per_year`` --
+      what that energy drives, to sanity-check against average UK mileage;
+      ``ev_mileage_check_ratio`` is that mileage over the configured
+      ``annual_miles`` (1.0 = consistent).
+    """
+    cfg = config or EVConfig()
+    admd: list[float] = []
+    energy = cars = 0.0
+    days = 0.0
+    for nid, sub in frame.groupby("neighbourhood_id", observed=True):
+        n_ev = int(n_ev_by_site.get(str(nid), 0))
+        if n_ev <= 0:
+            continue
+        admd.append(float(sub["ev_kwh"].max()) / HOURS_PER_PERIOD / n_ev)
+        energy += float(sub["ev_kwh"].sum())
+        cars += n_ev
+        days = max(days, sub["timestamp"].nunique() / PERIODS_PER_DAY)
+    if not cars or not days:
+        return {
+            "ev_charger_kw": float(cfg.charger_kw),
+            "ev_count": 0,
+            "ev_admd_kw": 0.0,
+            "ev_kwh_per_car_per_day": 0.0,
+            "ev_kwh_per_car_per_year": 0.0,
+            "ev_implied_miles_per_year": 0.0,
+            "ev_mileage_check_ratio": float("nan"),
+        }
+    per_day = energy / cars / days
+    miles = per_day * 365.0 * cfg.miles_per_kwh * cfg.charge_efficiency
+    return {
+        "ev_charger_kw": float(cfg.charger_kw),
+        "ev_count": int(cars),
+        "ev_admd_kw": float(np.mean(admd)),
+        "ev_kwh_per_car_per_day": float(per_day),
+        "ev_kwh_per_car_per_year": float(per_day * 365.0),
+        "ev_implied_miles_per_year": float(miles),
+        "ev_mileage_check_ratio": float(miles / cfg.annual_miles) if cfg.annual_miles else float("nan"),
+    }
+
+
 # ===========================================================================
 # heat pumps
 # ===========================================================================
@@ -352,13 +404,18 @@ def apply_scenario(
     The input frame must contain ``timestamp``, ``neighbourhood_id``,
     ``value_col`` and ``households_col``; ``temperature_c`` is used when
     present. The returned frame adds ``ev_kwh``, ``heat_pump_kwh`` and
-    ``electrified_kwh``.
+    ``electrified_kwh``. The summary carries the EV planning figures of
+    :func:`ev_planning_metrics` (charger power, ADMD, kWh per car per day and
+    the implied annual mileage).
     """
+    ev_config = ev_config or EVConfig()
     frames: list[pd.DataFrame] = []
+    n_ev_by_site: dict[str, int] = {}
     for nid, sub in df.groupby("neighbourhood_id", observed=True, sort=True):
         sub = sub.sort_values("timestamp").copy()
         ts = pd.DatetimeIndex(sub["timestamp"])
         households = int(sub[households_col].iloc[0]) if households_col in sub else 100
+        n_ev_by_site[str(nid)] = int(round(households * float(ev_adoption)))
 
         ev = simulate_ev_load(
             ts, households, ev_adoption, ev_config, seed=seed + _site_seed(nid, 997), runs=runs
@@ -390,13 +447,7 @@ def apply_scenario(
         if households_col in out
         else float("nan")
     )
-    n_ev = households * float(ev_adoption)
     n_hp = households * float(hp_adoption)
-    ev_admd = (
-        float(out.groupby("timestamp")["ev_kwh"].sum().max() / out["neighbourhood_id"].nunique() / n_ev * 2.0)
-        if n_ev
-        else 0.0
-    )
     hp_admd = (
         float(
             out.groupby("timestamp")["heat_pump_kwh"].sum().max()
@@ -419,26 +470,20 @@ def apply_scenario(
         "energy_growth_pct": float(100.0 * (out["electrified_kwh"].sum() / out["base_kwh"].sum() - 1.0)),
         "ev_energy_kwh": float(out["ev_kwh"].sum()),
         "heat_pump_energy_kwh": float(out["heat_pump_kwh"].sum()),
-        "ev_admd_kw": ev_admd,
+        **ev_planning_metrics(out, n_ev_by_site, ev_config),
         "heat_pump_admd_kw": hp_admd,
-        "ev_kwh_per_car_per_day": (
-            float(
-                out["ev_kwh"].sum()
-                / out["neighbourhood_id"].nunique()
-                / n_ev
-                / out["timestamp"].nunique()
-                * 48.0
-            )
-            if n_ev
-            else 0.0
-        ),
         "monte_carlo_runs": int(runs),
     }
     log.info(
-        "scenario EV=%.0f%% HP=%.0f%% -> peak +%.1f%%, energy +%.1f%%",
+        "scenario EV=%.0f%% HP=%.0f%% -> peak +%.1f%%, energy +%.1f%%; EV %.1f kW charger: "
+        "ADMD %.2f kW, %.1f kWh/car/day (~%s miles/year)",
         ev_adoption * 100,
         hp_adoption * 100,
         summary["peak_amplification_pct"],
         summary["energy_growth_pct"],
+        summary["ev_charger_kw"],
+        summary["ev_admd_kw"],
+        summary["ev_kwh_per_car_per_day"],
+        f"{summary['ev_implied_miles_per_year']:,.0f}",
     )
     return ScenarioResult(frame=out, summary=summary)
