@@ -28,6 +28,7 @@ from drg.data.lcl_loader import build_neighbourhood_demand
 from drg.features.engineering import build_feature_table
 from drg.models.registry import ModelBundle, load_best
 from drg.models.train import TrainingResult, train_models
+from drg.models.windows import SplitWindows, WindowError, windows_from_config
 from drg.simulation.electrification import EVConfig, HeatPumpConfig, apply_scenario
 from drg.stress.detection import (
     StressThresholds,
@@ -42,6 +43,26 @@ from drg.utils.io import write_table
 from drg.utils.logging_utils import get_logger
 
 log = get_logger(__name__)
+
+
+def project_windows(cfg: Config, features: pd.DataFrame) -> SplitWindows:
+    """The train / validation / test windows used by the last training run.
+
+    Later stages reuse the windows the harness persisted, so they report on
+    exactly the test window the models were scored on. Without a saved file
+    (or when it no longer covers ``features``) the configured windows are
+    resolved afresh.
+    """
+    path = cfg.paths.split_windows
+    if path.exists():
+        try:
+            windows = SplitWindows.load(path)
+            if len(windows.test_frame(features)):
+                return windows
+            log.warning("saved windows %s do not cover the feature table; re-resolving", path.name)
+        except (KeyError, ValueError, WindowError) as exc:
+            log.warning("ignoring unreadable %s: %s", path.name, exc)
+    return windows_from_config(cfg, features["timestamp"])
 
 
 # ===========================================================================
@@ -272,9 +293,7 @@ def stage_explain(
     bundle = bundle or load_best(cfg.paths.model_dir)
     features = features if features is not None else stage_features(cfg)
 
-    test_days = int(cfg.get("models.test_size_days", 60))
-    cutoff = features["timestamp"].max() - pd.Timedelta(days=test_days)
-    test = features[features["timestamp"] >= cutoff]
+    test = project_windows(cfg, features).test_frame(features)
     if test.empty:
         test = features.tail(min(len(features), sample_size))
 
@@ -347,6 +366,9 @@ def run_all(
         "eda": eda,
         "model": {
             "champion": training.best.name,
+            "selection_window": "validation",
+            "windows": training.windows.to_dict() if training.windows else None,
+            "validation_metrics": training.validation_metrics.to_dict(orient="records"),
             "test_metrics": training.metrics.to_dict(orient="records"),
             "cv_mean_rmse": float(training.cv_metrics["rmse"].mean()) if len(training.cv_metrics) else None,
             "model_path": str(training.model_path) if training.model_path else None,
