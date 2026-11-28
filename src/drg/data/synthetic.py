@@ -9,7 +9,11 @@ that reproduces the statistical properties the framework depends on:
 * flatter, later weekend profile;
 * winter amplification driven by heating-degree response to temperature;
 * household diversity (aggregate coefficient of variation ~ 1/sqrt(N));
-* holiday and daylight-saving effects.
+* holiday and daylight-saving effects;
+* partial household reporting: individual meters drop out at random and
+  occasional multi-day outages take a block of meters offline, so the
+  contributing household count varies per half-hour exactly as it does in
+  the real aggregation (DRG-29).
 
 Every generated series is reproducible from ``project.random_seed``.
 """
@@ -19,6 +23,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from drg.data.aggregation import finalise_neighbourhood_demand
 from drg.utils.logging_utils import get_logger
 
 log = get_logger(__name__)
@@ -41,6 +46,32 @@ _WEEKEND_SHAPE = np.array([
 # fmt: on
 
 _UK_HOLIDAYS = {"01-01", "12-25", "12-26"}
+
+# Meter reporting behaviour used to simulate partial households.
+_METER_MISS_RATE = 0.01  # independent chance a single meter misses a half-hour
+_OUTAGE_EVENTS_PER_YEAR = 1.5  # multi-day comms outages per neighbourhood
+_OUTAGE_SHARE = (0.15, 0.45)  # share of meters an outage takes offline
+_OUTAGE_DAYS = (1, 7)
+
+
+def simulate_reporting_households(
+    n_periods: int,
+    registered: int,
+    rng: np.random.Generator,
+    periods_per_day: int = 48,
+) -> np.ndarray:
+    """Number of households whose meter reported, per half-hour."""
+    missed = rng.binomial(registered, _METER_MISS_RATE, n_periods)
+    offline = np.zeros(n_periods, dtype=int)
+    n_events = rng.poisson(_OUTAGE_EVENTS_PER_YEAR * n_periods / (365 * periods_per_day))
+    for _ in range(int(n_events)):
+        start = int(rng.integers(0, n_periods))
+        length = int(rng.integers(_OUTAGE_DAYS[0], _OUTAGE_DAYS[1] + 1)) * periods_per_day
+        share = rng.uniform(*_OUTAGE_SHARE)
+        offline[start : start + length] = np.maximum(
+            offline[start : start + length], int(round(share * registered))
+        )
+    return np.clip(registered - offline - missed, 0, registered)
 
 
 def synthetic_temperature(index: pd.DatetimeIndex, seed: int = 42) -> pd.Series:
@@ -75,11 +106,15 @@ def generate_synthetic_neighbourhoods(
     seed: int = 42,
     freq: str = "30min",
     temperature: pd.Series | None = None,
+    min_household_coverage: float = 0.5,
 ) -> pd.DataFrame:
     """Return tidy half-hourly neighbourhood demand.
 
     Columns: ``timestamp``, ``neighbourhood_id``, ``demand_kwh``,
-    ``n_households``, ``temperature_c``.
+    ``demand_observed_kwh``, ``demand_per_household_kwh``, ``n_households``
+    (households reporting that half-hour), ``n_households_registered``,
+    ``household_coverage`` and ``temperature_c`` -- the same schema the Low
+    Carbon London aggregation produces.
 
     When ``temperature`` is supplied (for example the real ERA5 reanalysis
     series fetched from Open-Meteo) the heating response is driven by observed
@@ -141,21 +176,34 @@ def generate_synthetic_neighbourhoods(
             noise[i] = 0.55 * noise[i - 1] + 0.835 * noise[i]
         demand = mean_hh * n_households * (1.0 + cv * noise)
 
-        # Rare, short data-quality dropouts (meter comms loss)
+        # Rare, short data-quality dropouts (whole-site comms loss)
         dropout = rng.random(len(index)) < 0.0006
         demand[dropout] = np.nan
 
-        frames.append(
+        # Partial households: only the reporting meters contribute to the
+        # observed sum. A separate stream keeps the demand draws above stable.
+        reporting = simulate_reporting_households(
+            len(index), n_households, np.random.default_rng(seed + 7919 * (n_id + 1))
+        )
+        reporting[dropout] = 0
+        observed = np.clip(demand, 0.0, None) * reporting / n_households
+        observed[reporting == 0] = np.nan
+
+        site = finalise_neighbourhood_demand(
             pd.DataFrame(
                 {
                     "timestamp": index,
                     "neighbourhood_id": f"N{n_id + 1:02d}",
-                    "demand_kwh": np.round(np.clip(demand, 0.0, None), 4),
-                    "n_households": n_households,
-                    "temperature_c": temperature.to_numpy(),
+                    "demand_observed_kwh": np.round(observed, 4),
+                    "n_households": reporting,
                 }
-            )
+            ),
+            {f"N{n_id + 1:02d}": n_households},
+            min_household_coverage=min_household_coverage,
         )
+        site["demand_kwh"] = site["demand_kwh"].round(4)
+        site["temperature_c"] = temperature.to_numpy()
+        frames.append(site)
 
     out = pd.concat(frames, ignore_index=True)
     log.info(

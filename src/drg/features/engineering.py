@@ -226,6 +226,13 @@ def feature_columns(df: pd.DataFrame) -> list[str]:
         TARGET,
         "minute",
         "year",
+        # same-period aggregation outputs (DRG-29): derived from the target or
+        # unknown at forecast time; n_households_registered stays as site size
+        "demand_observed_kwh",
+        "demand_per_household_kwh",
+        "n_households",
+        "household_coverage",
+        "is_imputed",
     }
     cols = [c for c in df.columns if c not in exclude and pd.api.types.is_numeric_dtype(df[c])]
     return cols

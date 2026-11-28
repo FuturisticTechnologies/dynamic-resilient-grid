@@ -170,6 +170,25 @@ The loader reads in chunks, resolves the published column spellings case-insensi
 households into fixed-size low-voltage groups by a stable hash of the meter id, and aggregates each
 chunk immediately — so memory stays proportional to the chunk, not the dataset.
 
+**Neighbourhood aggregation and partial households.** A first pass reads only the meter ids and
+assigns `n_neighbourhoods` groups of `households_per_neighbourhood` meters (4 x 120 by default),
+ordered by a stable hash so reruns give the same groups. Meters drop out, so a raw total built from
+a varying household count is not comparable over time. Every half-hourly row therefore keeps:
+
+| column | meaning |
+|---|---|
+| `n_households` | households whose meter reported in that half-hour |
+| `n_households_registered` | households assigned to the neighbourhood |
+| `household_coverage` | `n_households / n_households_registered` |
+| `demand_observed_kwh` | raw sum over the reporting households |
+| `demand_per_household_kwh` | observed sum / reporting households, for comparing sites of different sizes |
+| `demand_kwh` | per-household demand x registered households: the comparable series used downstream |
+| `is_imputed` | demand was interpolated across a short gap during cleaning |
+
+Half-hours below `data.min_household_coverage` (default 0.5) are treated as gaps, not as a fall in
+demand. The synthetic fallback simulates meter dropouts and multi-day outages and produces the same
+columns.
+
 ### Without it
 
 `data.synthetic.enabled: true` (the default) generates a calibrated fallback: bimodal weekday load
