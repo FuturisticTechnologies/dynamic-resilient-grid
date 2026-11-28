@@ -6,7 +6,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from drg.analysis.sensitivity import elasticity_curve, run_sensitivity_grid, summarise_amplification
+from drg.analysis.sensitivity import (
+    adoption_dominance,
+    assumption_sweep,
+    elasticity_curve,
+    rank_assumptions,
+    run_sensitivity_grid,
+    summarise_amplification,
+)
 from drg.simulation.electrification import (
     EVConfig,
     HeatPumpConfig,
@@ -167,3 +174,40 @@ def test_sensitivity_grid_is_monotonic_in_adoption(demand):
     curves = elasticity_curve(grid, hold="hp_adoption")
     assert "elasticity_pct_per_10pp" in curves.columns
     assert len(curves) == 6
+
+
+def test_assumption_sweep_ranks_adoption_above_equipment(demand):
+    window = demand[demand["timestamp"] >= demand["timestamp"].max() - pd.Timedelta(days=30)]
+    thresholds = compute_thresholds(demand)
+    ranges = {
+        "ev_adoption": (0.1, 0.8),
+        "hp_adoption": (0.1, 0.6),
+        "ev.charger_kw": (6.0, 7.4),
+        "heat_pump.diversity_factor": (0.65, 0.75),
+    }
+    sweep = assumption_sweep(window, thresholds, reference_ev=0.4, reference_hp=0.3, ranges=ranges, seed=5)
+
+    assert len(sweep) == 3 * len(ranges), "low, reference and high per assumption"
+    assert set(sweep["setting"]) == {"low", "reference", "high"}
+    ref = sweep[sweep["setting"] == "reference"]
+    assert ref["stress_frequency_pct"].nunique() == 1, "every assumption shares one reference run"
+
+    ev = sweep[sweep["assumption"] == "ev_adoption"].set_index("setting")
+    assert ev.loc["high", "stress_frequency_pct"] >= ev.loc["low", "stress_frequency_pct"]
+    assert ev.loc["high", "peak_amplification_pct"] > ev.loc["low", "peak_amplification_pct"]
+
+    ranking = rank_assumptions(sweep)
+    assert list(ranking["rank"]) == list(range(1, len(ranges) + 1))
+    assert ranking["stress_frequency_swing_pp"].is_monotonic_decreasing
+    assert ranking["share_of_total_swing_pct"].sum() == pytest.approx(100.0)
+    assert ranking.iloc[0]["kind"] == "adoption"
+
+    verdict = adoption_dominance(ranking)
+    assert verdict["adoption_dominates"] is True
+    assert verdict["top_adoption_swing_pp"] >= verdict["top_equipment_swing_pp"]
+
+
+def test_assumption_sweep_rejects_unknown_assumption(demand):
+    window = demand[demand["timestamp"] >= demand["timestamp"].max() - pd.Timedelta(days=7)]
+    with pytest.raises(ValueError, match="unknown sensitivity assumption"):
+        assumption_sweep(window, compute_thresholds(demand), ranges={"ev.not_a_field": (1.0, 2.0)})

@@ -8,8 +8,9 @@ Five panels, matching proposal section 7.10:
 * **Stress** - historical stress frequency, duration and diurnal pattern;
 * **Scenarios** - interactive EV / heat-pump adoption sliders with the
   resulting electrified load profile and recomputed stress;
-* **Sensitivity** - the full adoption grid, peak amplification surface and
-  elasticity curves;
+* **Sensitivity** - the full adoption grid, peak amplification surface,
+  and how stress frequency and duration move with each modelling
+  assumption, ranked by how much they matter;
 * **Explainability** - SHAP driver ranking, globally and during stress.
 
 Every chart ships a matching data table (the palette carries a contrast
@@ -544,6 +545,139 @@ with tab_sens:
                 ]
             ].round(2),
             "Sensitivity grid",
+        )
+
+    # -- which assumptions matter ------------------------------------------
+    st.divider()
+    st.subheader("Which assumptions the results depend on")
+    sweep = load_report("assumption_sensitivity.parquet")
+    ranking = load_report("assumption_ranking.parquet")
+    if sweep is None or ranking is None:
+        st.info("Run `python -m drg.cli scenarios` to build the assumption sensitivity sweep.")
+    else:
+        ref_ev = float(sweep["reference_ev_adoption"].iloc[0])
+        ref_hp = float(sweep["reference_hp_adoption"].iloc[0])
+        st.caption(
+            f"Each assumption is moved to the low and high end of a plausible range, one at a time, "
+            f"around a reference scenario of EV {ref_ev:.0%} and heat pumps {ref_hp:.0%}. "
+            "Everything else, including the seed and the historical stress thresholds, is held fixed."
+        )
+
+        order = ranking["assumption"].tolist()[::-1]  # largest swing at the top
+        labels = ranking.set_index("assumption")["label"]
+
+        def tornado(metric: str, title: str, axis_title: str, fmt: str) -> go.Figure:
+            fig = go.Figure()
+            ref_value = float(sweep.loc[sweep["setting"] == "reference", metric].iloc[0])
+            for i, (setting, name) in enumerate((("low", "Low value"), ("high", "High value"))):
+                sub = sweep[sweep["setting"] == setting].set_index("assumption").reindex(order)
+                fig.add_trace(
+                    go.Bar(
+                        y=[labels[a] for a in order],
+                        x=sub[metric] - ref_value,
+                        base=ref_value,
+                        orientation="h",
+                        name=name,
+                        marker={"color": SERIES[i], "line": {"color": "#fcfcfb", "width": 2}},
+                        customdata=np.stack([sub["value"], sub[metric]], axis=-1),
+                        hovertemplate="%{y}<br>setting %{customdata[0]:.3g} → "
+                        f"%{{customdata[1]:{fmt}}}<extra>{name}</extra>",
+                    )
+                )
+            fig.add_vline(x=ref_value, line={"color": INK_MUTED, "width": 1, "dash": "dash"})
+            fig.update_layout(**base_layout(title, height=60 + 42 * len(order), barmode="overlay"))
+            fig.update_xaxes(title_text=axis_title)
+            return fig
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(
+                tornado(
+                    "stress_frequency_pct",
+                    "Stress frequency by assumption",
+                    "% of half-hours in stress (dashed = reference)",
+                    ".2f",
+                ),
+                use_container_width=True,
+            )
+        with c2:
+            st.plotly_chart(
+                tornado(
+                    "mean_event_hours",
+                    "Mean stress event duration by assumption",
+                    "Hours per event (dashed = reference)",
+                    ".2f",
+                ),
+                use_container_width=True,
+            )
+        table_view(
+            sweep[
+                [
+                    "label",
+                    "setting",
+                    "value",
+                    "stress_frequency_pct",
+                    "mean_event_hours",
+                    "peak_amplification_pct",
+                ]
+            ].round(3),
+            "Assumption sweep - every run",
+        )
+
+        st.markdown("**Assumptions ranked by how much they move stress frequency**")
+        st.dataframe(
+            ranking[
+                [
+                    "rank",
+                    "label",
+                    "kind",
+                    "low_value",
+                    "reference_value",
+                    "high_value",
+                    "stress_frequency_swing_pp",
+                    "share_of_total_swing_pct",
+                    "mean_event_hours_swing",
+                    "duration_rank",
+                ]
+            ]
+            .rename(
+                columns={
+                    "rank": "Rank",
+                    "label": "Assumption",
+                    "kind": "Type",
+                    "low_value": "Low",
+                    "reference_value": "Reference",
+                    "high_value": "High",
+                    "stress_frequency_swing_pp": "Stress frequency swing (pp)",
+                    "share_of_total_swing_pct": "Share of total swing (%)",
+                    "mean_event_hours_swing": "Duration swing (h)",
+                    "duration_rank": "Duration rank",
+                }
+            )
+            .round(3),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        adoption = ranking[ranking["kind"] == "adoption"]
+        equipment = ranking[ranking["kind"] != "adoption"]
+        top = ranking.iloc[0]
+        dominance = (
+            f"**Adoption rate dominates.** {top['label']} moves stress frequency by "
+            f"{top['stress_frequency_swing_pp']:.1f} pp across its range; the largest equipment "
+            f"assumption ({equipment.iloc[0]['label'] if len(equipment) else 'n/a'}) moves it by "
+            f"{(equipment['stress_frequency_swing_pp'].max() if len(equipment) else 0.0):.1f} pp. "
+            f"Adoption accounts for {adoption['share_of_total_swing_pct'].sum():.0f}% of the total swing."
+            if top["kind"] == "adoption"
+            else f"**{top['label']} moves stress more than adoption in this run** "
+            f"({top['stress_frequency_swing_pp']:.1f} pp). "
+            "Check that assumption before relying on the results."
+        )
+        st.info(
+            dominance + "\n\n**DRG does not forecast adoption.** The EV and heat-pump adoption "
+            "levels are scenario inputs chosen by the user, not predictions of what will happen. "
+            "The results say how stress responds *if* adoption reaches a level, not *when* it will.",
+            icon="ℹ️",
         )
 
 
