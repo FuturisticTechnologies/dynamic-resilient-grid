@@ -98,6 +98,8 @@ def main() -> int:
                 "lags": str(cfg.features["lags"]),
                 "rolling_windows": str(cfg.features["rolling_windows"]),
                 "test_size_days": cfg.models["test_size_days"],
+                "val_size_days": cfg.models["val_size_days"],
+                "train_start": str(cfg.models.get("train_start")),
                 "ev_charger_kw": cfg.electrification["ev"]["charger_kw"],
                 "heat_pump_rated_kw": cfg.electrification["heat_pump"]["rated_kw"],
                 "monte_carlo_runs": cfg.electrification["monte_carlo_runs"],

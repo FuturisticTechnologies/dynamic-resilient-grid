@@ -77,6 +77,10 @@ class Paths:
         return self.report_dir / "model_metrics.json"
 
     @property
+    def split_windows(self) -> Path:
+        return self.report_dir / "split_windows.json"
+
+    @property
     def stress_output(self) -> Path:
         return self.report_dir / "stress_events.parquet"
 
