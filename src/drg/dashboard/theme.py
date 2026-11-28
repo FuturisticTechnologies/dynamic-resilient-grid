@@ -117,5 +117,7 @@ def severity_badge(severity: str) -> str:
         f'<span style="display:inline-flex;align-items:center;gap:.4rem;'
         f"padding:.15rem .55rem;border-radius:999px;background:{colour}22;"
         f"border:1px solid {colour};color:{INK_PRIMARY};font-size:.82rem;"
-        f'font-family:{FONT}"><b>{icon}</b> {severity.upper()}</span>'
+        # FONT quotes "Segoe UI" in double quotes, which would close the style
+        # attribute early and make Streamlit print the badge as raw text
+        f'font-family:{FONT.replace(chr(34), chr(39))}"><b>{icon}</b> {severity.upper()}</span>'
     )

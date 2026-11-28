@@ -186,7 +186,22 @@ and the forecast to the threshold — raising a *pre-emptive* alert when the for
 the measurement does, which is the only kind of alert with operational value.
 
 Ticks carry severity bands (normal / watch / elevated / high / critical), headroom in kWh and %,
-and optionally the live weather and carbon snapshot.
+optionally the top drivers of the forecast (`explain=True`, `drg.explain.local`), and optionally
+the live weather and carbon snapshot.
+
+### Replay page (DRG-117)
+
+- `ReplaySession` (`drg.streaming.session`) wraps the engine with play / pause / step / seek /
+  reset and a speed ratio (simulated / wall time). `advance(elapsed_s)` turns wall time into whole
+  half-hour periods and carries the remainder, so the replay keeps its pace whatever the page
+  refresh rate. `label()` is the "HISTORICAL REPLAY - not a live feed" text the page and CLI show.
+- `AlarmManager` (`drg.streaming.alarms`) turns ticks into a control-room alarm list. Each alarm is
+  raised once, escalated as severity rises (an escalation needs re-acknowledging), acknowledged,
+  and cleared. A pre-emptive forecast alarm is cleared when the forecast falls back and superseded
+  when measured stress arrives. All alarm times are replay timestamps.
+- The Streamlit **Replay (historical)** tab keeps one session per browser session and redraws in an
+  `st.fragment(run_every=1s)` while playing. Controls use button callbacks so their labels are
+  never stale.
 
 ---
 

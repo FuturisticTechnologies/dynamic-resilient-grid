@@ -2,9 +2,11 @@
 
 Five panels, matching proposal section 7.10:
 
-* **Live** - streaming replay of neighbourhood demand with the rolling
-  one-step-ahead forecast, the fixed statistical stress threshold and the
-  alert state;
+* **Replay** - the operational view of *historical* data: a replay with
+  play / pause / step / speed controls, the rolling one-step-ahead forecast,
+  stress state, a per-forecast explanation and operator alarms, all updating
+  as the replay clock advances. It is labelled as a replay throughout so it
+  cannot be mistaken for a live feed (DRG-117);
 * **Stress** - historical stress frequency, duration and diurnal pattern;
 * **Scenarios** - interactive EV / heat-pump adoption sliders with the
   resulting electrified load profile and recomputed stress;
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +52,12 @@ from drg.simulation.electrification import (  # noqa: E402
     EVConfig,
     HeatPumpConfig,
     apply_scenario,
+)
+from drg.streaming import (  # noqa: E402
+    REPLAY_LABEL,
+    SPEED_CHOICES,
+    ReplaySession,
+    StreamingReplayEngine,
 )
 from drg.stress.detection import (  # noqa: E402
     compute_thresholds,
@@ -142,6 +151,11 @@ demand = load_demand()
 
 st.sidebar.title("⚡ Dynamic Resilient Grid")
 st.sidebar.caption(f"v{__version__} · AI-driven electrification stress analysis")
+st.sidebar.warning(
+    "**Replay mode.** The operational view replays historical data; nothing on this "
+    "dashboard is a live network feed.",
+    icon="⏯️",
+)
 
 if demand.empty:
     st.title("Dynamic Resilient Grid")
@@ -216,52 +230,95 @@ if metrics_json:
 else:
     k5.metric("Forecast R²", "n/a", help="Run: python -m drg.cli train")
 
-tab_live, tab_stress, tab_scenario, tab_sens, tab_explain = st.tabs(
-    ["Live & forecast", "Stress profile", "Scenario studio", "Sensitivity", "Explainability"]
+tab_replay, tab_stress, tab_scenario, tab_sens, tab_explain = st.tabs(
+    ["Replay (historical)", "Stress profile", "Scenario studio", "Sensitivity", "Explainability"]
 )
 
 
 # ===========================================================================
-# 1. live replay
+# 1. replay (operational view of historical data)
 # ===========================================================================
-with tab_live:
-    st.subheader("Streaming replay with rolling forecast")
-    bundle = load_bundle()
-    if bundle is None:
-        st.warning("No trained model found — run `python -m drg.cli train` to enable forecasting.")
-    else:
-        from drg.streaming.replay import StreamingReplayEngine
+REPLAY_REFRESH_S = 1.0
 
-        steps = st.slider("Replay length (half-hourly steps)", 48, 672, 336, 48)
-        window = int(cfg.streaming.get("window_periods", 336))
-        engine = StreamingReplayEngine(
-            demand,
-            bundle,
-            thresholds,
-            cfg,
-            neighbourhood_id=site,
-            start_index=max(len(site_demand) - steps - 1, window + 1),
-        )
-        ticks = pd.DataFrame([t.to_dict() for t in engine.stream(n=steps)])
-        ticks["timestamp"] = pd.to_datetime(ticks["timestamp"])
 
-        latest = ticks.iloc[-1]
-        c1, c2, c3 = st.columns([2, 1, 1])
-        c1.markdown(
-            f"**Current state** &nbsp; {severity_badge(str(latest['severity']))}",
-            unsafe_allow_html=True,
+def _replay_session(bundle) -> ReplaySession:
+    """One replay session per browser session, rebuilt when the site changes."""
+    key = f"replay::{site}::{id(bundle)}"
+    if st.session_state.get("replay_key") != key:
+        engine = StreamingReplayEngine(demand, bundle, thresholds, cfg, neighbourhood_id=site, explain=True)
+        source = str(site_demand.get("source", pd.Series(["historical data"])).iloc[0])
+        session = ReplaySession(
+            engine, speed=float(cfg.streaming.get("speed_factor", 240)), source=f"{source} data"
         )
-        c2.metric(
-            "Headroom to threshold", f"{latest['headroom_kwh']:,.1f} kWh", f"{latest['headroom_pct']:.1f}%"
-        )
-        c3.metric("Alerts in window", int(ticks["is_stress"].sum() + ticks["forecast_is_stress"].sum()))
+        start, end = session.period
+        session.seek(max(start, end - pd.Timedelta(days=14)))
+        session.step(48)  # one day of context before the operator presses play
+        st.session_state["replay_key"] = key
+        st.session_state["replay"] = session
+        st.session_state["replay_wall"] = time.monotonic()
+    return st.session_state["replay"]
 
+
+def _replay_banner(session: ReplaySession) -> None:
+    st.markdown(
+        f"""
+        <div role="status" aria-live="polite" style="border:2px solid {STATUS['elevated']};
+             background:#fff6e0;border-radius:6px;padding:10px 14px;margin-bottom:10px;">
+          <span style="background:{STATUS['elevated']};color:#0b0b0b;font-weight:700;
+                padding:2px 8px;border-radius:4px;letter-spacing:.05em;">&#9654; {REPLAY_LABEL}</span>
+          <span style="margin-left:10px;color:#0b0b0b;">{session.label(include_tag=False)}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_replay_view(session: ReplaySession) -> None:
+    now = time.monotonic()
+    elapsed = now - st.session_state.get("replay_wall", now)
+    st.session_state["replay_wall"] = now
+    for event in session.advance(elapsed):
+        if event.action in ("raised", "escalated"):
+            when = f"{event.timestamp:%d %b %H:%M}"
+            st.toast(f"REPLAY {when} - {event.level.upper()}: {event.message}", icon="⚠️")
+
+    _replay_banner(session)
+    latest = session.latest
+    ticks = session.ticks_frame()
+    if latest is None or ticks.empty:
+        st.info("Press play or step to start the replay.")
+        return
+
+    c1, c2, c3, c4, c5 = st.columns([1.4, 1.2, 1, 1, 1])
+    c1.metric(
+        "Replay clock (historical)",
+        f"{latest.timestamp:%H:%M}",
+        f"{latest.timestamp:%a %d %b %Y}",
+        delta_color="off",
+    )
+    c2.markdown("**Stress state**")
+    c2.markdown(severity_badge(str(latest.severity)), unsafe_allow_html=True)
+    c3.metric("Measured", f"{latest.actual_kwh:,.1f} kWh", f"{latest.headroom_pct:.1f}% headroom")
+    c4.metric(
+        f"Forecast {pd.Timestamp(latest.forecast_timestamp):%H:%M}",
+        f"{latest.forecast_next_kwh:,.1f} kWh",
+        "breaches threshold" if latest.forecast_is_stress else "below threshold",
+        delta_color="inverse" if latest.forecast_is_stress else "off",
+    )
+    unacked = len(session.alarms.unacknowledged())
+    c5.metric("Open alarms", len(session.alarms.active()), f"{unacked} unacknowledged", delta_color="off")
+    first, last = session.period
+    st.progress(session.progress, text=f"Replay progress through {first:%b %Y} - {last:%b %Y}")
+
+    left, right = st.columns([2.2, 1])
+    with left:
+        shown = ticks[ticks["timestamp"] >= latest.timestamp - pd.Timedelta(days=3)]
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
-                x=ticks["timestamp"],
-                y=ticks["actual_kwh"],
-                name="Measured demand",
+                x=shown["timestamp"],
+                y=shown["actual_kwh"],
+                name="Measured (replayed)",
                 mode="lines",
                 line={"color": SERIES[0], "width": 2},
                 hovertemplate="%{y:.1f} kWh<extra>Measured</extra>",
@@ -269,15 +326,15 @@ with tab_live:
         )
         fig.add_trace(
             go.Scatter(
-                x=ticks["forecast_timestamp"].astype("datetime64[ns]"),
-                y=ticks["forecast_next_kwh"],
+                x=shown["forecast_timestamp"],
+                y=shown["forecast_next_kwh"],
                 name="One-step forecast",
                 mode="lines",
                 line={"color": SERIES[1], "width": 2, "dash": "dot"},
                 hovertemplate="%{y:.1f} kWh<extra>Forecast</extra>",
             )
         )
-        stressed = ticks[ticks["is_stress"]]
+        stressed = shown[shown["is_stress"]]
         if len(stressed):
             fig.add_trace(
                 go.Scatter(
@@ -292,28 +349,130 @@ with tab_live:
         fig.add_hline(
             y=threshold,
             line={"color": INK_MUTED, "width": 1, "dash": "dash"},
-            annotation_text=f"P{int(cfg.stress['primary_percentile'])} threshold " f"{threshold:,.0f} kWh",
+            annotation_text=f"P{int(cfg.stress['primary_percentile'])} threshold {threshold:,.0f} kWh",
             annotation_position="top left",
             annotation_font={"color": INK_MUTED, "size": 11},
         )
-        fig.update_layout(**base_layout("Measured vs forecast demand", height=430))
+        fig.add_vline(x=latest.timestamp, line={"color": STATUS["elevated"], "width": 2})
+        fig.add_annotation(
+            x=latest.timestamp,
+            y=1.0,
+            yref="paper",
+            text="REPLAY CLOCK",
+            showarrow=False,
+            yanchor="bottom",
+            font={"color": INK_MUTED, "size": 11},
+        )
+        fig.update_layout(**base_layout("Measured vs forecast (replay)", height=420))
         fig.update_yaxes(title_text="kWh per half hour")
         st.plotly_chart(fig, use_container_width=True)
 
-        table_view(
-            ticks[
-                [
-                    "timestamp",
-                    "actual_kwh",
-                    "forecast_next_kwh",
-                    "threshold_kwh",
-                    "severity",
-                    "is_stress",
-                    "forecast_is_stress",
-                ]
-            ].round(2),
-            "Replay tick log",
+    with right:
+        st.markdown("**Why this forecast**")
+        drivers = pd.DataFrame(latest.drivers)
+        if drivers.empty:
+            st.caption("No per-forecast explanation is available for this model.")
+        else:
+            drivers = drivers.iloc[::-1]
+            colours = [SERIES[7] if v > 0 else SERIES[0] for v in drivers["contribution"]]
+            exp = go.Figure(
+                go.Bar(
+                    x=drivers["contribution"],
+                    y=drivers["feature"],
+                    orientation="h",
+                    marker={"color": colours},
+                    hovertemplate="%{y}: %{x:+.2f} kWh<extra></extra>",
+                )
+            )
+            exp.update_layout(**base_layout(None, height=300))
+            exp.update_xaxes(title_text="Contribution to forecast (kWh)")
+            st.plotly_chart(exp, use_container_width=True)
+            st.caption("Red pushes the forecast up, blue pulls it down.")
+            table_view(drivers.iloc[::-1].round(3), "Forecast drivers")
+
+    st.markdown("#### Operator alarms")
+    active = session.alarms.active()
+    if not active:
+        st.success("No open alarms at the replay clock.")
+    for alarm in active:
+        a1, a2, a3 = st.columns([1.1, 4, 1])
+        a1.markdown(severity_badge(alarm.level), unsafe_allow_html=True)
+        state = "ACKNOWLEDGED" if alarm.state == "acknowledged" else "UNACKNOWLEDGED"
+        a2.markdown(
+            f"**#{alarm.id} {alarm.kind.upper()}** - {alarm.message}  \n"
+            f"raised {alarm.raised_at:%d %b %H:%M} (replay time) - {alarm.duration_h:.1f} h - {state}"
         )
+        if alarm.state == "active" and a3.button("Acknowledge", key=f"ack-{alarm.id}"):
+            session.alarms.acknowledge(alarm.id, latest.timestamp)
+            st.rerun(scope="fragment")
+
+    events = session.alarms.events_frame()
+    if not events.empty:
+        table_view(events.iloc[::-1], "Alarm event log (replay timestamps)")
+    table_view(
+        ticks[
+            [
+                "timestamp",
+                "actual_kwh",
+                "forecast_next_kwh",
+                "threshold_kwh",
+                "severity",
+                "is_stress",
+                "forecast_is_stress",
+            ]
+        ]
+        .iloc[::-1]
+        .round(2),
+        "Replay tick log",
+    )
+
+
+with tab_replay:
+    st.subheader("Replay - operational view of historical data")
+    bundle = load_bundle()
+    if bundle is None:
+        st.warning("No trained model found - run `python -m drg.cli train` to enable the replay.")
+    else:
+        session = _replay_session(bundle)
+
+        def _toggle() -> None:
+            session.toggle()
+            st.session_state["replay_wall"] = time.monotonic()
+
+        def _step(n: int) -> None:
+            session.pause()
+            session.step(n)
+
+        def _reset() -> None:
+            session.reset()
+            session.step(48)
+
+        # callbacks run before the script, so the Play / Pause label is never stale
+        b1, b2, b3, b4, b5, b6 = st.columns([1, 1, 1, 1, 2, 2])
+        b1.button("⏸ Pause" if session.playing else "▶ Play", on_click=_toggle, use_container_width=True)
+        b2.button("⏭ Step", on_click=_step, args=(1,), use_container_width=True, help="Advance one half-hour")
+        b3.button(
+            "⏩ +1 day", on_click=_step, args=(48,), use_container_width=True, help="Advance 48 half-hours"
+        )
+        b4.button("↺ Reset", on_click=_reset, use_container_width=True)
+        labels = list(SPEED_CHOICES)
+        current = next((k for k, v in SPEED_CHOICES.items() if v == session.speed), labels[1])
+        choice = b5.selectbox("Replay speed", labels, index=labels.index(current))
+        session.set_speed(SPEED_CHOICES[choice])
+        start, end = session.period
+        jump = b6.date_input(
+            "Jump to (historical date)", value=None, min_value=start.date(), max_value=end.date()
+        )
+        if jump is not None and jump != st.session_state.get("replay_jump"):
+            st.session_state["replay_jump"] = jump
+            session.seek(pd.Timestamp(jump))
+            session.step(1)
+
+        st.caption(
+            f"{'Playing' if session.playing else 'Paused'} - one half-hour every "
+            f"{session.seconds_per_period:,.1f} s at {session.speed:,.0f}x."
+        )
+        st.fragment(run_every=REPLAY_REFRESH_S if session.playing else None)(_render_replay_view)(session)
 
 
 # ===========================================================================

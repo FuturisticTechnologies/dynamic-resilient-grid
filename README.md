@@ -252,7 +252,7 @@ python -m drg.cli --help
   scenarios     Run the EV / heat-pump adoption grid and sensitivity analysis
   explain       SHAP explainability for the champion model
   run-all       Every stage, end to end, into artifacts/reports/run_report.json
-  replay        Replay historical demand as a live feed with stress alerts
+  replay        Replay historical demand (not a live feed) with forecasts and operator alarms
   context       Fetch the live weather and carbon-intensity snapshot
   serve         Start the FastAPI decision-support service
   dashboard     Launch the Streamlit dashboard
@@ -295,7 +295,7 @@ curl -X POST localhost:8000/scenario \
 python -m drg.cli dashboard        # http://localhost:8501
 ```
 
-Five panels: **Live & forecast** (streaming replay, rolling forecast, severity badge, headroom),
+Five panels: **Replay (historical)** (the operational view, below),
 **Stress profile** (diurnal and seasonal stress concentration, event log), **Scenario studio**
 (adoption sliders, stacked component profile, worst modelled day), **Sensitivity** (peak
 amplification heat map, escalation curves), **Explainability** (SHAP global vs stress-period
@@ -304,6 +304,23 @@ drivers).
 Charts follow a validated colour system: a fixed categorical order checked for colour-vision
 deficiency separation, one blue ramp for magnitude, a reserved status palette that always ships
 with an icon and a label, single y-axes throughout, and a data table beside every chart.
+
+**Replay page.** The operational view replays a historical window at accelerated speed:
+
+- **controls**: play / pause, step one half-hour, +1 day, reset, replay speed (60x to 7,200x;
+  default `streaming.speed_factor`) and jump to a historical date;
+- **labelled as a replay everywhere**: a "HISTORICAL REPLAY - not a live feed" banner with the
+  data source, period and speed; a sidebar notice; the tab name; a "replay clock" marker on the
+  chart. Every time shown is the replayed historical timestamp, never wall-clock time;
+- **live-updating view**: measured vs one-step forecast against the stress threshold, the stress
+  state, headroom, and **why this forecast** — the top feature contributions to the current
+  forecast (TreeSHAP for XGBoost, coefficient x value for linear models);
+- **operator alarms**: alarms are raised once, escalated when severity rises, acknowledged by the
+  operator and cleared when demand falls back, with pre-emptive forecast alarms superseded by
+  measured stress. New alarms pop up as toasts, and the full event log is one click away.
+
+The same session drives `python -m drg.cli replay --speed 1800 --realtime --explain`, which also
+writes `replay_log.parquet` and `replay_alarms.csv`.
 
 ---
 
